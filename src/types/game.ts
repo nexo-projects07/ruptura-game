@@ -228,6 +228,8 @@ export interface PlayerState {
   // RUPTURA 5.0 Fields
   activeCompanion?: CompanionRole;
   coopRaidsCompleted?: number;
+  currentSkin?: string;
+  unlockedSkins?: string[];
 }
 
 export interface EnemyIntent {

@@ -800,7 +800,11 @@ export const CombatScene: React.FC<{
           <div className="w-full flex items-center justify-between px-2 sm:px-6 md:px-16 min-h-[140px] sm:min-h-[170px] md:min-h-[190px]">
             {/* Kael Stance */}
             <div className="flex flex-col items-center scale-90 sm:scale-100 transition-transform">
-              <KaelAvatar state={kaelAnim} />
+              <KaelAvatar
+                state={kaelAnim}
+                skinId={player.currentSkin || 'skin-default'}
+                equippedGear={player.equippedGear}
+              />
               <div className="mt-1 sm:mt-2 flex flex-col items-center gap-1">
                 <span className="text-[9px] sm:text-[10px] md:text-xs font-mono text-cyan-300 bg-cyan-950/80 px-1.5 sm:px-2 py-0.5 rounded border border-cyan-500/30 whitespace-nowrap">
                   {isDefending ? '🛡️ DEFESA ATIVA' : isDodging ? '💨 ESQUIVA PREPARADA' : cronoshieldActive ? '⌛ CRONO-ESCUDO' : 'SISTEMAS PRONTOS'}

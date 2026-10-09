@@ -13,13 +13,16 @@ import {
   AlertCircle,
   HelpCircle,
   Eye,
-  X
+  X,
+  Palette
 } from 'lucide-react';
 import { AtmosphericCanvas } from '../components/AtmosphericCanvas';
 import { ProgressionHUD } from '../components/ProgressionHUD';
+import { KaelAvatar } from '../components/KaelAvatar';
 import { EquipmentItem, EquipmentSlot, ItemRarity, PlayerState } from '../types/game';
 import { ItemRegistry } from '../systems/ItemRegistry';
 import { StatCalculator } from '../systems/StatCalculator';
+import { SkinRegistry, KAEL_SKINS, KaelSkinId } from '../systems/SkinSystem';
 import { audio } from '../systems/AudioEngine';
 
 interface InventorySceneProps {
@@ -35,7 +38,35 @@ export const InventoryScene: React.FC<InventorySceneProps> = ({
 }) => {
   const [selectedSlotFilter, setSelectedSlotFilter] = useState<EquipmentSlot | 'ALL'>('ALL');
   const [selectedItem, setSelectedItem] = useState<EquipmentItem | null>(null);
+  const [activeTab, setActiveTab] = useState<'EQUIPMENT' | 'SKINS'>('EQUIPMENT');
   const [feedbackToast, setFeedbackToast] = useState<string | null>(null);
+
+  // Unlocked skins calculation
+  const unlockedSkinIds = SkinRegistry.getUnlockedSkins(
+    player.unlockedRealms ?? [],
+    player.level,
+    player.discoveredSecrets?.length ?? 0,
+    player.defeatedSecretBosses ?? [],
+    player.unlockedSkins ?? []
+  );
+
+  const handleSelectSkin = (skinId: KaelSkinId) => {
+    if (!unlockedSkinIds.includes(skinId)) {
+      audio.playDenied();
+      setFeedbackToast('Esta skin ainda está bloqueada por marcos de campanha.');
+      setTimeout(() => setFeedbackToast(null), 2500);
+      return;
+    }
+
+    audio.playSecretFound();
+    setPlayer(prev => ({
+      ...prev,
+      currentSkin: skinId,
+    }));
+    const s = SkinRegistry.getSkin(skinId);
+    setFeedbackToast(`Skin ativada: ${s.name}!`);
+    setTimeout(() => setFeedbackToast(null), 2200);
+  };
 
   // Derive all active player inventory items
   const inventorySlots = player.inventory ?? [];
@@ -179,9 +210,37 @@ export const InventoryScene: React.FC<InventorySceneProps> = ({
             <ArrowLeft className="w-4 h-4" />
             <span>VOLTAR AO NEXUS</span>
           </button>
-          <div className="flex items-center gap-2 text-xs text-cyan-300">
-            <Sword className="w-4 h-4 text-cyan-400" />
-            <span className="tracking-widest text-[11px] sm:text-xs">EQUIPAMENTOS DE KAEL</span>
+          
+          {/* View Mode Tabs: Equipment vs Skins */}
+          <div className="flex items-center gap-2 bg-slate-900/90 p-1 rounded-xl border border-slate-800">
+            <button
+              onClick={() => {
+                audio.playClick();
+                setActiveTab('EQUIPMENT');
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                activeTab === 'EQUIPMENT'
+                  ? 'bg-cyan-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Sword className="w-3.5 h-3.5" />
+              <span>EQUIPAMENTOS</span>
+            </button>
+            <button
+              onClick={() => {
+                audio.playClick();
+                setActiveTab('SKINS');
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
+                activeTab === 'SKINS'
+                  ? 'bg-fuchsia-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Palette className="w-3.5 h-3.5" />
+              <span>SKINS DE KAEL ({unlockedSkinIds.length}/8)</span>
+            </button>
           </div>
         </div>
 
@@ -228,13 +287,131 @@ export const InventoryScene: React.FC<InventorySceneProps> = ({
           </div>
         </div>
 
-        {/* Main Section: 4 Equipped Slots & Item Inspector */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Left Column: 4 Equipped Slots */}
-          <div className="lg:col-span-5 space-y-3">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
-              EQUIPAMENTOS ATIVOS (4 SLOTS)
-            </span>
+        {/* Main Section: Equipment vs Skins Gallery */}
+        {activeTab === 'SKINS' ? (
+          /* Skins Showcase View */
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left: Big Interactive KaelAvatar Preview */}
+            <div className="lg:col-span-5 bg-slate-900/90 border border-fuchsia-500/40 p-6 rounded-2xl flex flex-col items-center justify-center text-center space-y-4 shadow-xl">
+              <span className="text-[10px] text-fuchsia-400 font-bold uppercase tracking-wider">
+                VISUALIZAÇÃO EM TEMPO REAL DE KAEL
+              </span>
+              <div className="py-4">
+                <KaelAvatar
+                  skinId={player.currentSkin || 'skin-default'}
+                  equippedGear={player.equippedGear}
+                  scale={1.15}
+                />
+              </div>
+              <div className="border-t border-slate-800 pt-3 w-full">
+                <h3 className="text-base font-black text-white">
+                  {SkinRegistry.getSkin(player.currentSkin || 'skin-default').name}
+                </h3>
+                <p className="text-xs text-fuchsia-300 font-bold mt-0.5">
+                  {SkinRegistry.getSkin(player.currentSkin || 'skin-default').title}
+                </p>
+                <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
+                  {SkinRegistry.getSkin(player.currentSkin || 'skin-default').description}
+                </p>
+                <div className="mt-3 p-2 bg-slate-950 rounded-xl border border-fuchsia-500/30 text-xs text-emerald-300 font-bold">
+                  Bônus Passivo: {SkinRegistry.getSkin(player.currentSkin || 'skin-default').statPerkDescription}
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Grid of All 8 Skins */}
+            <div className="lg:col-span-7 space-y-3">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
+                GUARDA-ROUPA MULTIVERSAL (8 SKINS ÚNICAS)
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {KAEL_SKINS.map(s => {
+                  const isUnlocked = unlockedSkinIds.includes(s.id);
+                  const isEquipped = (player.currentSkin || 'skin-default') === s.id;
+
+                  return (
+                    <button
+                      key={s.id}
+                      disabled={!isUnlocked}
+                      onClick={() => handleSelectSkin(s.id)}
+                      className={`p-4 rounded-xl border text-left transition flex flex-col justify-between min-h-[140px] relative overflow-hidden ${
+                        isEquipped
+                          ? 'border-fuchsia-400 bg-fuchsia-950/70 shadow-lg ring-1 ring-fuchsia-400'
+                          : isUnlocked
+                          ? 'border-slate-800 bg-slate-900/80 hover:border-fuchsia-500/50 hover:bg-slate-850'
+                          : 'border-slate-850 bg-slate-950/50 opacity-50 cursor-not-allowed'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span
+                            className="text-[9px] px-2 py-0.5 rounded font-bold uppercase tracking-wider"
+                            style={{
+                              backgroundColor: `${s.palette.primary}25`,
+                              color: s.palette.accent,
+                              border: `1px solid ${s.palette.primary}60`,
+                            }}
+                          >
+                            {s.bonusTag || 'SKIN'}
+                          </span>
+                          {isEquipped ? (
+                            <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500/40 font-bold flex items-center gap-1">
+                              <Check className="w-3 h-3" /> EM USO
+                            </span>
+                          ) : !isUnlocked ? (
+                            <span className="text-[9px] text-slate-500 uppercase font-bold">BLOQUEADA</span>
+                          ) : null}
+                        </div>
+
+                        <h4 className="text-xs font-bold text-white mt-1">{s.name}</h4>
+                        <p className="text-[10px] text-slate-400 mt-1 line-clamp-2">{s.description}</p>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-800/80 mt-2 text-[10px]">
+                        {isUnlocked ? (
+                          <span className="text-cyan-400 font-bold">Toque para Equipar</span>
+                        ) : (
+                          <span className="text-rose-400">🔒 {s.unlockCondition}</span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* Equipment Mode */
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Left Column: Avatar Preview + 4 Equipped Slots */}
+            <div className="lg:col-span-5 space-y-3">
+              {/* Dynamic Live KaelAvatar Preview in Equipment Mode */}
+              <div className="p-4 bg-slate-900/90 border border-cyan-500/40 rounded-2xl flex items-center justify-around shadow-md">
+                <KaelAvatar
+                  skinId={player.currentSkin || 'skin-default'}
+                  equippedGear={player.equippedGear}
+                  scale={0.9}
+                />
+                <div className="space-y-1 text-left">
+                  <span className="text-[9px] text-cyan-400 uppercase font-bold">EQUIPADO VISUALMENTE</span>
+                  <h4 className="text-xs font-bold text-white">
+                    {SkinRegistry.getSkin(player.currentSkin || 'skin-default').name}
+                  </h4>
+                  <p className="text-[10px] text-slate-400">
+                    Arma: <strong className="text-cyan-300">{equippedWeapon?.name || 'Padrão'}</strong>
+                  </p>
+                  <p className="text-[10px] text-slate-400">
+                    Traje: <strong className="text-blue-300">{equippedArmor?.name || 'Padrão'}</strong>
+                  </p>
+                  <p className="text-[10px] text-slate-400">
+                    Núcleo: <strong className="text-fuchsia-300">{equippedCore?.name || 'Padrão'}</strong>
+                  </p>
+                </div>
+              </div>
+
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
+                SLOTS DE EQUIPAMENTO (4 SLOTS)
+              </span>
 
             {/* Slot: Weapon */}
             <div className="p-3.5 bg-slate-900/90 border border-slate-800 rounded-2xl flex items-center justify-between">
@@ -500,6 +677,7 @@ export const InventoryScene: React.FC<InventorySceneProps> = ({
             )}
           </div>
         </div>
+        )}
       </div>
     </div>
   );
