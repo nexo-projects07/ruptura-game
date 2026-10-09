@@ -11,9 +11,14 @@ import { MultiverseMapScene, MULTIVERSE_REALMS } from './scenes/MultiverseMapSce
 import { ExplorationScene } from './scenes/ExplorationScene';
 import { UpgradesScene } from './scenes/UpgradesScene';
 import { LoreArchivesScene } from './scenes/LoreArchivesScene';
-import { PlayerState, EnemyState, RealmData } from './types/game';
+import { InventoryScene } from './scenes/InventoryScene';
+import { SkillTreeScene } from './scenes/SkillTreeScene';
+import { QuestLogScene } from './scenes/QuestLogScene';
+import { SecretBossesScene } from './scenes/SecretBossesScene';
+import { PlayerState, EnemyState, RealmData, SecretBossConfig } from './types/game';
 import { audio } from './systems/AudioEngine';
 import { SaveEngine } from './systems/SaveEngine';
+import { StatCalculator } from './systems/StatCalculator';
 
 const INITIAL_PLAYER: PlayerState = {
   name: 'KAEL',
@@ -34,6 +39,30 @@ const INITIAL_PLAYER: PlayerState = {
   upgradeLevels: { hp_suit: 0, plasma_blade: 0, kinetic_shield: 0, focus_cell: 0 },
   discoveredSecrets: [],
   unlockedRealms: ['realm-alpha'],
+  inventory: [
+    {
+      instanceId: 'starter-wpn-01',
+      itemId: 'wpn-01',
+      equipped: true,
+      acquiredAt: Date.now(),
+    },
+    {
+      instanceId: 'starter-arm-01',
+      itemId: 'arm-01',
+      equipped: true,
+      acquiredAt: Date.now(),
+    },
+  ],
+  equippedGear: {
+    weaponId: 'wpn-01',
+    armorId: 'arm-01',
+  },
+  talentPoints: 1,
+  allocatedTalents: [],
+  activeQuests: ['qst-01', 'qst-02'],
+  completedQuests: [],
+  discoveredSecretBosses: [],
+  defeatedSecretBosses: [],
 };
 
 type Scene =
@@ -48,7 +77,11 @@ type Scene =
   | 'MULTIVERSE_MAP'
   | 'EXPLORATION'
   | 'UPGRADES'
-  | 'LORE_ARCHIVES';
+  | 'LORE_ARCHIVES'
+  | 'INVENTORY'
+  | 'SKILLS'
+  | 'QUESTS'
+  | 'SECRET_BOSSES';
 
 const initialEnemy = (phase: CampaignPhase): EnemyState => ({
   name: phase.enemy.toUpperCase(),
@@ -70,6 +103,7 @@ export default function App() {
   const [phase, setPhase] = useState<CampaignPhase>(CAMPAIGN_PHASES[0]);
   const [enemy, setEnemy] = useState<EnemyState>(initialEnemy(CAMPAIGN_PHASES[0]));
   const [lastPhaseId, setLastPhaseId] = useState('fase-01');
+  const [activeSecretBoss, setActiveSecretBoss] = useState<SecretBossConfig | null>(null);
 
   // Load save on mount with transparent v1 migration
   useEffect(() => {
@@ -84,6 +118,14 @@ export default function App() {
           matrixCells: saved.player.matrixCells ?? prev.matrixCells ?? 0,
           aetherCores: saved.player.aetherCores ?? prev.aetherCores ?? 0,
           upgradeLevels: saved.player.upgradeLevels ?? prev.upgradeLevels,
+          inventory: saved.player.inventory ?? prev.inventory ?? [],
+          equippedGear: saved.player.equippedGear ?? prev.equippedGear ?? {},
+          talentPoints: saved.player.talentPoints ?? prev.talentPoints ?? 0,
+          allocatedTalents: saved.player.allocatedTalents ?? prev.allocatedTalents ?? [],
+          activeQuests: saved.player.activeQuests ?? prev.activeQuests ?? ['qst-01', 'qst-02'],
+          completedQuests: saved.player.completedQuests ?? prev.completedQuests ?? [],
+          discoveredSecretBosses: saved.player.discoveredSecretBosses ?? prev.discoveredSecretBosses ?? [],
+          defeatedSecretBosses: saved.player.defeatedSecretBosses ?? prev.defeatedSecretBosses ?? [],
         }));
       }
       if (Array.isArray(saved.unlockedPhases) && saved.unlockedPhases.length > 0) {
@@ -110,6 +152,10 @@ export default function App() {
     SaveEngine.save(player, 'CAMPAIGN_MAP', unlockedPhases, completedPhases, {
       lastPhaseId,
       unlockedRealms,
+      discoveredSecrets: player.discoveredSecrets,
+      activeQuests: player.activeQuests,
+      completedQuests: player.completedQuests,
+      defeatedSecretBosses: player.defeatedSecretBosses,
     });
   }, [player, unlockedPhases, completedPhases, lastPhaseId, unlockedRealms]);
 
@@ -123,6 +169,7 @@ export default function App() {
     setPhase(CAMPAIGN_PHASES[0]);
     setLastPhaseId('fase-01');
     setEnemy(initialEnemy(CAMPAIGN_PHASES[0]));
+    setActiveSecretBoss(null);
     setScene('PROLOGUE');
     audio.playClick();
   };
@@ -138,6 +185,7 @@ export default function App() {
     if (!unlockedPhases.includes(selected.id)) return;
     setPhase(selected);
     setLastPhaseId(selected.id);
+    setActiveSecretBoss(null);
     setScene('BRIEFING');
     audio.playClick();
   };
@@ -148,6 +196,7 @@ export default function App() {
     if (found) {
       setPhase(found);
       setLastPhaseId(found.id);
+      setActiveSecretBoss(null);
       setScene('BRIEFING');
       audio.playClick();
     }
@@ -156,6 +205,7 @@ export default function App() {
   // Special 2.0 Realm challenge combat
   const handleGoToSpecialRealmCombat = (realm: RealmData) => {
     audio.playPortal();
+    setActiveSecretBoss(null);
     let challengeEnemy: EnemyState;
 
     if (realm.id === 'realm-epsilon') {
@@ -184,14 +234,37 @@ export default function App() {
     }
 
     setEnemy(challengeEnemy);
-    setPlayer(p => ({ ...p, hp: p.maxHp }));
+    const calculated = StatCalculator.calculate(player);
+    setPlayer(p => ({ ...p, hp: calculated.maxHp }));
     setScene('COMBAT');
   };
 
-  // Start Combat
+  // Secret Boss Combat Launcher
+  const handleStartSecretBossCombat = (boss: SecretBossConfig) => {
+    audio.playBossPhase();
+    setActiveSecretBoss(boss);
+    const bossEnemy: EnemyState = {
+      name: boss.name.toUpperCase(),
+      hp: boss.enemyStats.hp,
+      maxHp: boss.enemyStats.hp,
+      atk: boss.enemyStats.atk,
+      def: boss.enemyStats.def,
+      boss: true,
+      phase: 1,
+      maxPhases: boss.enemyStats.maxPhases,
+    };
+    setEnemy(bossEnemy);
+    const calculated = StatCalculator.calculate(player);
+    setPlayer(p => ({ ...p, hp: calculated.maxHp }));
+    setScene('COMBAT');
+  };
+
+  // Start Combat from Briefing
   const startCombat = () => {
+    setActiveSecretBoss(null);
     setEnemy(initialEnemy(phase));
-    setPlayer(p => ({ ...p, hp: p.maxHp }));
+    const calculated = StatCalculator.calculate(player);
+    setPlayer(p => ({ ...p, hp: calculated.maxHp }));
     setScene('COMBAT');
     audio.playClick();
   };
@@ -200,17 +273,75 @@ export default function App() {
   const handleVictory = () => {
     audio.playVictory();
 
-    // Exp, credits, fragments and Matrix Cells calculation
+    // If victory against Secret Boss
+    if (activeSecretBoss) {
+      const reward = activeSecretBoss.rewards;
+      setPlayer(p => {
+        const alreadyDefeated = p.defeatedSecretBosses?.includes(activeSecretBoss.id);
+        const updatedDefeated = alreadyDefeated
+          ? p.defeatedSecretBosses
+          : [...(p.defeatedSecretBosses ?? []), activeSecretBoss.id];
+
+        const newInv = [...(p.inventory ?? [])];
+        if (reward.itemId) {
+          newInv.push({
+            instanceId: `inst-${Date.now()}-${Math.random()}`,
+            itemId: reward.itemId,
+            equipped: false,
+            acquiredAt: Date.now(),
+          });
+        }
+
+        let exp = p.exp + reward.exp;
+        let level = p.level;
+        let maxExp = p.maxExp;
+        let atk = p.atk;
+        let maxHp = p.maxHp;
+        let talentPoints = p.talentPoints ?? 0;
+
+        if (exp >= maxExp) {
+          exp -= maxExp;
+          level += 1;
+          talentPoints += 1;
+          maxExp = Math.floor(maxExp * 1.35);
+          atk += 3;
+          maxHp += 10;
+        }
+
+        return {
+          ...p,
+          exp,
+          level,
+          maxExp,
+          atk,
+          maxHp,
+          hp: maxHp,
+          talentPoints,
+          credits: p.credits + reward.credits,
+          fragments: p.fragments + reward.fragments,
+          matrixCells: (p.matrixCells ?? 0) + (reward.matrixCells ?? 0),
+          inventory: newInv,
+          defeatedSecretBosses: updatedDefeated,
+        };
+      });
+      setActiveSecretBoss(null);
+      setScene('VICTORY');
+      return;
+    }
+
+    // Normal Campaign Victory
     setPlayer(p => {
       let exp = p.exp + 120;
       let level = p.level;
       let maxExp = p.maxExp;
       let atk = p.atk;
       let maxHp = p.maxHp;
+      let talentPoints = p.talentPoints ?? 0;
 
       if (exp >= maxExp) {
         exp -= maxExp;
         level += 1;
+        talentPoints += 1;
         maxExp = Math.floor(maxExp * 1.35);
         atk += 3;
         maxHp += 10;
@@ -224,6 +355,7 @@ export default function App() {
         atk,
         maxHp,
         hp: maxHp,
+        talentPoints,
         credits: p.credits + 50,
         fragments: p.fragments + 1,
         matrixCells: (p.matrixCells ?? 0) + 1,
@@ -259,9 +391,14 @@ export default function App() {
 
   // Retry combat
   const retry = () => {
-    setPlayer(p => ({ ...p, hp: p.maxHp }));
-    setEnemy(initialEnemy(phase));
-    setScene('COMBAT');
+    const calculated = StatCalculator.calculate(player);
+    setPlayer(p => ({ ...p, hp: calculated.maxHp }));
+    if (activeSecretBoss) {
+      handleStartSecretBossCombat(activeSecretBoss);
+    } else {
+      setEnemy(initialEnemy(phase));
+      setScene('COMBAT');
+    }
   };
 
   // Debug unlock all 10 phases for test validation
@@ -352,13 +489,13 @@ export default function App() {
               onClick={startCombat}
               className="w-full py-3.5 rounded-xl bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 font-bold tracking-widest uppercase flex items-center justify-center gap-2 text-white shadow-lg shadow-cyan-600/30 transition text-sm"
             >
-              <Crosshair size={18} /> INICIAR COMBATE RUPTURA 2.0
+              <Crosshair size={18} /> INICIAR COMBATE RUPTURA 3.0
             </button>
           </div>
         </div>
       )}
 
-      {/* 5. DYNAMIC COMBAT 2.0 */}
+      {/* 5. DYNAMIC COMBAT */}
       {scene === 'COMBAT' && (
         <CombatScene
           player={player}
@@ -374,9 +511,9 @@ export default function App() {
       {/* 6. VICTORY */}
       {scene === 'VICTORY' && (
         <VictoryScene
-          phaseTitle={phase.title}
+          phaseTitle={activeSecretBoss ? activeSecretBoss.title : phase.title}
           enemyName={enemy.name}
-          onContinue={() => setScene('MAP')}
+          onContinue={() => setScene(activeSecretBoss ? 'SECRET_BOSSES' : 'MAP')}
           onGoToNexus={() => setScene('NEXUS')}
         />
       )}
@@ -390,7 +527,7 @@ export default function App() {
         />
       )}
 
-      {/* 8. NEXUS HUB 2.0 */}
+      {/* 8. NEXUS HUB 3.0 */}
       {scene === 'NEXUS' && (
         <NexusHubScene
           player={player}
@@ -401,11 +538,19 @@ export default function App() {
           onOpenExploration={() => setScene('EXPLORATION')}
           onOpenUpgrades={() => setScene('UPGRADES')}
           onOpenLoreArchives={() => setScene('LORE_ARCHIVES')}
+          onOpenInventory={() => setScene('INVENTORY')}
+          onOpenSkillTree={() => setScene('SKILLS')}
+          onOpenQuestLog={() => setScene('QUESTS')}
+          onOpenSecretBosses={() => setScene('SECRET_BOSSES')}
           onMenuClick={() => setScene('MENU')}
           onSaveGame={() =>
             SaveEngine.save(player, 'NEXUS_HUB', unlockedPhases, completedPhases, {
               lastPhaseId,
               unlockedRealms,
+              discoveredSecrets: player.discoveredSecrets,
+              activeQuests: player.activeQuests,
+              completedQuests: player.completedQuests,
+              defeatedSecretBosses: player.defeatedSecretBosses,
             })
           }
         />
@@ -445,6 +590,45 @@ export default function App() {
       {/* 12. LORE ARCHIVES */}
       {scene === 'LORE_ARCHIVES' && (
         <LoreArchivesScene player={player} onBackToNexus={() => setScene('NEXUS')} />
+      )}
+
+      {/* 13. INVENTORY & GEAR */}
+      {scene === 'INVENTORY' && (
+        <InventoryScene
+          player={player}
+          setPlayer={setPlayer}
+          onBackToNexus={() => setScene('NEXUS')}
+        />
+      )}
+
+      {/* 14. SKILL TREE */}
+      {scene === 'SKILLS' && (
+        <SkillTreeScene
+          player={player}
+          setPlayer={setPlayer}
+          onBackToNexus={() => setScene('NEXUS')}
+        />
+      )}
+
+      {/* 15. QUEST LOG */}
+      {scene === 'QUESTS' && (
+        <QuestLogScene
+          player={player}
+          setPlayer={setPlayer}
+          completedPhases={completedPhases}
+          unlockedRealms={unlockedRealms}
+          onBackToNexus={() => setScene('NEXUS')}
+        />
+      )}
+
+      {/* 16. SECRET BOSSES */}
+      {scene === 'SECRET_BOSSES' && (
+        <SecretBossesScene
+          player={player}
+          completedPhases={completedPhases}
+          onStartSecretBossCombat={handleStartSecretBossCombat}
+          onBackToNexus={() => setScene('NEXUS')}
+        />
       )}
     </div>
   );

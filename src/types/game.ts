@@ -23,7 +23,142 @@ export type ScreenType =
   | 'EXPLORATION'
   | 'UPGRADES'
   | 'LORE_ARCHIVES'
-  | 'QUANTUM_ARENA';
+  | 'QUANTUM_ARENA'
+  // RUPTURA 3.0 Screens (Expansion)
+  | 'INVENTORY'
+  | 'SKILL_TREE'
+  | 'QUEST_LOG'
+  | 'SECRET_BOSSES';
+
+export type ItemRarity = 'COMMON' | 'RARE' | 'EPIC' | 'LEGENDARY';
+
+export type EquipmentSlot = 'WEAPON' | 'ARMOR' | 'CORE' | 'ACCESSORY';
+
+export interface StatModifiers {
+  hp?: number;
+  atk?: number;
+  def?: number;
+  focus?: number;
+  critChance?: number;
+  focusRecovery?: number;
+  dodgeBonus?: number;
+  damageReduction?: number;
+}
+
+export interface EquipmentItem {
+  id: string;
+  name: string;
+  description: string;
+  lore?: string;
+  slot: EquipmentSlot;
+  rarity: ItemRarity;
+  stats: StatModifiers;
+  requiredLevel: number;
+  creditValue: number;
+  matrixCost?: number;
+}
+
+export interface InventorySlot {
+  instanceId: string;
+  itemId: string;
+  equipped: boolean;
+  acquiredAt: number;
+}
+
+export interface EquippedGearState {
+  weaponId?: string | null;
+  armorId?: string | null;
+  coreId?: string | null;
+  accessoryId?: string | null;
+}
+
+export type TalentBranch = 
+  | 'QUANTUM_ASSAULT'
+  | 'MATRIX_GUARDIAN'
+  | 'TEMPORAL_WARP'
+  | 'CONVERGENCE';
+
+export interface TalentNode {
+  id: string;
+  branch: TalentBranch;
+  name: string;
+  description: string;
+  tier: number;
+  requiredLevel: number;
+  requiredTalents?: string[];
+  costPoints: number;
+  costMatrixCells?: number;
+  stats?: StatModifiers;
+  specialEffect?: string;
+}
+
+export interface PlayerTalents {
+  allocatedTalents: string[];
+  talentPoints: number;
+  totalEarnedPoints: number;
+}
+
+export type QuestStatus = 'AVAILABLE' | 'ACTIVE' | 'COMPLETED' | 'FAILED';
+
+export interface QuestObjective {
+  id: string;
+  description: string;
+  targetCount: number;
+  currentCount: number;
+  completed: boolean;
+}
+
+export interface QuestReward {
+  exp: number;
+  credits: number;
+  fragments: number;
+  matrixCells?: number;
+  itemId?: string;
+}
+
+export interface Quest {
+  id: string;
+  title: string;
+  description: string;
+  realmId: string;
+  status: QuestStatus;
+  objectives: QuestObjective[];
+  rewards: QuestReward;
+  requiredLevel: number;
+  requiredPhase?: string;
+}
+
+export type SecretBossStatus = 'LOCKED' | 'DISCOVERED' | 'DEFEATED';
+
+export interface SecretBossConfig {
+  id: string;
+  name: string;
+  title: string;
+  description: string;
+  realmId: string;
+  status: SecretBossStatus;
+  unlockCondition: string;
+  rewards: QuestReward;
+  enemyStats: {
+    hp: number;
+    maxHp: number;
+    atk: number;
+    def: number;
+    maxPhases: number;
+    bossType: 'NORMAL' | 'GUARDIAN' | 'AVATAR' | 'ARCHITECT';
+  };
+}
+
+export interface CalculatedStats {
+  maxHp: number;
+  atk: number;
+  def: number;
+  baseFocus: number;
+  focusRecovery: number;
+  critChance: number;
+  dodgeBonus: number;
+  damageReductionPercent: number;
+}
 
 export interface PlayerState {
   name: string;
@@ -46,6 +181,15 @@ export interface PlayerState {
   upgradeLevels?: Record<string, number>;
   discoveredSecrets?: string[];
   unlockedRealms?: string[];
+  // RUPTURA 3.0 Fields
+  inventory?: InventorySlot[];
+  equippedGear?: EquippedGearState;
+  talentPoints?: number;
+  allocatedTalents?: string[];
+  activeQuests?: string[];
+  completedQuests?: string[];
+  discoveredSecretBosses?: string[];
+  defeatedSecretBosses?: string[];
 }
 
 export interface EnemyIntent {
@@ -104,6 +248,11 @@ export interface SaveData {
   currentScreen: ScreenType;
   discoveredSecrets?: string[];
   unlockedRealms?: string[];
+  questProgress?: Record<string, number>;
+  activeQuests?: string[];
+  completedQuests?: string[];
+  discoveredSecretBosses?: string[];
+  defeatedSecretBosses?: string[];
   version?: string;
   timestamp: number;
 }

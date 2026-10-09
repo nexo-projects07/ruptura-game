@@ -20,6 +20,7 @@ import { KaelAvatar } from '../components/KaelAvatar';
 import { FragmentadoAvatar } from '../components/FragmentadoAvatar';
 import { PlayerState, EnemyState, EnemyIntent } from '../types/game';
 import { audio } from '../systems/AudioEngine';
+import { StatCalculator } from '../systems/StatCalculator';
 
 interface FloatingMessage {
   id: number;
@@ -37,6 +38,7 @@ export const CombatScene: React.FC<{
   onDefeat: () => void;
   onNexusClick?: () => void;
 }> = ({ player, setPlayer, enemy, setEnemy, onVictory, onDefeat, onNexusClick }) => {
+  const stats = StatCalculator.calculate(player);
   const [turn, setTurn] = useState<number>(1);
   const [focus, setFocus] = useState<number>(player.focus ?? 30);
   const [combo, setCombo] = useState<number>(0);
@@ -180,7 +182,8 @@ export const CombatScene: React.FC<{
 
       // Check Perfect Dodge
       if (dodging) {
-        if (enemyIntent.type === 'HEAVY_TELEGRAPH' || Math.random() < 0.65) {
+        const dodgeChance = 0.65 + stats.dodgeBonus;
+        if (enemyIntent.type === 'HEAVY_TELEGRAPH' || Math.random() < dodgeChance) {
           audio.playDodge();
           showFloating('ESQUIVA PERFEITA!', 'dodge', 'kael');
           setCombatLog(prev => [
@@ -189,9 +192,11 @@ export const CombatScene: React.FC<{
           ]);
 
           // Counter-attack on perfect dodge
-          const counterDmg = Math.floor(player.atk * 0.9);
+          const counterCrit = Math.random() < stats.critChance;
+          const counterMultiplier = counterCrit ? 1.5 : 1.0;
+          const counterDmg = Math.floor(stats.atk * 0.9 * counterMultiplier);
           audio.playLaser();
-          showFloating(`CONTRA-ATAQUE: -${counterDmg}`, 'crit', 'enemy');
+          showFloating(`CONTRA-ATAQUE: -${counterDmg}${counterCrit ? ' (CRÍTICO!)' : ''}`, 'crit', 'enemy');
           setEnemy(prev => {
             const nextHp = Math.max(0, prev.hp - counterDmg);
             if (nextHp <= 0) {
@@ -209,17 +214,19 @@ export const CombatScene: React.FC<{
         }
       }
 
-      // Calculate incoming damage
+      // Calculate incoming damage using stats.def and damageReductionPercent
       let rawDmg = enemyIntent.power;
-      const defReduction = Math.floor(player.def * 0.5);
-      let finalDamage = Math.max(3, rawDmg - defReduction);
+      const defReduction = Math.floor(stats.def * 0.5);
+      let baseMitigated = Math.max(2, rawDmg - defReduction);
+      const passiveAbsorption = Math.floor(baseMitigated * stats.damageReductionPercent);
+      let finalDamage = Math.max(1, baseMitigated - passiveAbsorption);
 
       if (cronoshieldActive) {
         audio.playShield();
         const absorbed = Math.floor(finalDamage * 0.7);
         finalDamage = Math.max(1, finalDamage - absorbed);
         const healAmt = Math.floor(absorbed * 0.8);
-        setPlayer(prev => ({ ...prev, hp: Math.min(prev.maxHp, prev.hp + healAmt) }));
+        setPlayer(prev => ({ ...prev, hp: Math.min(stats.maxHp, prev.hp + healAmt) }));
         showFloating(`CRONO-ESCUDO! +${healAmt} HP`, 'heal', 'kael');
         setCombatLog(prev => [
           `🛡️ CRONO-ESCUDO converteu ${absorbed} de impacto em ${healAmt} de regeneração de vida!`,
@@ -227,7 +234,7 @@ export const CombatScene: React.FC<{
         ]);
         setCronoshieldActive(false);
       } else if (defending) {
-        finalDamage = Math.max(2, Math.floor(finalDamage * 0.35));
+        finalDamage = Math.max(1, Math.floor(finalDamage * 0.35));
         showFloating(`DEFESA: -${finalDamage}`, 'damage', 'kael');
         setCombatLog(prev => [
           `🛡️ Matriz Defensiva absorveu a maior parte do impacto (${finalDamage} de dano recebido).`,
@@ -340,7 +347,9 @@ export const CombatScene: React.FC<{
     }
 
     const comboBonus = 1 + (nextCombo - 1) * 0.12;
-    const baseDamage = Math.floor(player.atk * 0.85 * comboBonus);
+    const isCrit = Math.random() < stats.critChance;
+    const critMultiplier = isCrit ? 1.6 : 1.0;
+    const baseDamage = Math.floor(stats.atk * 0.85 * comboBonus * critMultiplier);
 
     // Stagger build
     const nextStagger = Math.min(100, enemyStagger + 20);
@@ -358,13 +367,14 @@ export const CombatScene: React.FC<{
       const nextEnemyHp = Math.max(0, enemy.hp - baseDamage);
       setEnemy(prev => ({ ...prev, hp: nextEnemyHp }));
       setEnemyAnim('hit');
-      showFloating(`-${baseDamage}`, 'damage', 'enemy');
+      showFloating(`-${baseDamage}${isCrit ? ' (CRÍTICO!)' : ''}`, isCrit ? 'crit' : 'damage', 'enemy');
 
-      // Generate focus
-      setFocus(f => Math.min(100, f + 20));
+      // Generate focus based on stats.focusRecovery
+      const gainedFocus = 20 + Math.floor(stats.focusRecovery * 0.5);
+      setFocus(f => Math.min(100, f + gainedFocus));
 
       setCombatLog(prev => [
-        `🗡️ KAEL desferiu Ataque Rápido [Combo x${nextCombo}] causando ${baseDamage} de dano! (+20 Foco)`,
+        `🗡️ KAEL desferiu Ataque Rápido [Combo x${nextCombo}] causando ${baseDamage} de dano${isCrit ? ' [CRÍTICO!]' : ''}! (+${gainedFocus} Foco)`,
         ...prev,
       ]);
 
@@ -390,7 +400,9 @@ export const CombatScene: React.FC<{
     setFocus(nextFocus);
 
     const comboBonus = 1 + combo * 0.15;
-    const heavyDamage = Math.floor(player.atk * 1.65 * comboBonus);
+    const isCrit = Math.random() < stats.critChance;
+    const critMultiplier = isCrit ? 1.75 : 1.0;
+    const heavyDamage = Math.floor(stats.atk * 1.65 * comboBonus * critMultiplier);
     const nextStagger = Math.min(100, enemyStagger + 45);
     setEnemyStagger(nextStagger);
 
@@ -405,10 +417,10 @@ export const CombatScene: React.FC<{
       const nextEnemyHp = Math.max(0, enemy.hp - heavyDamage);
       setEnemy(prev => ({ ...prev, hp: nextEnemyHp }));
       setEnemyAnim('hit');
-      showFloating(`-${heavyDamage} PESADO!`, 'crit', 'enemy');
+      showFloating(`-${heavyDamage} PESADO!${isCrit ? ' (CRÍTICO!)' : ''}`, 'crit', 'enemy');
 
       setCombatLog(prev => [
-        `💥 IMPACTO PESADO! Kael desferiu Disparo de Ruptura causando ${heavyDamage} de dano massivo!`,
+        `💥 IMPACTO PESADO! Kael desferiu Disparo de Ruptura causando ${heavyDamage} de dano massivo${isCrit ? ' [CRÍTICO!]' : ''}!`,
         ...prev,
       ]);
 
@@ -442,8 +454,9 @@ export const CombatScene: React.FC<{
     audio.playShield();
     setIsDefending(true);
     setKaelAnim('defend');
-    setFocus(f => Math.min(100, f + 15));
-    setCombatLog(prev => ['🛡️ KAEL ativou Matriz Defensiva. Dano mitigado e +15 de Foco recuperado.', ...prev]);
+    const gainedFocus = 15 + Math.floor(stats.focusRecovery * 0.5);
+    setFocus(f => Math.min(100, f + gainedFocus));
+    setCombatLog(prev => [`🛡️ KAEL ativou Matriz Defensiva. Dano mitigado e +${gainedFocus} de Foco recuperado.`, ...prev]);
 
     setTimeout(() => {
       handleEnemyTurn(player.hp, true, false);
@@ -460,17 +473,19 @@ export const CombatScene: React.FC<{
     setFocus(f => Math.max(0, f - 35));
     setQuantumCooldown(3);
 
-    const damage = Math.floor(player.atk * 2.1) + 20;
+    const isCrit = Math.random() < stats.critChance;
+    const critMultiplier = isCrit ? 1.6 : 1.0;
+    const damage = Math.floor(stats.atk * 2.1 * critMultiplier) + 20;
 
     setTimeout(() => {
       setKaelAnim('idle');
       const nextEnemyHp = Math.max(0, enemy.hp - damage);
       setEnemy(prev => ({ ...prev, hp: nextEnemyHp }));
       setEnemyAnim('hit');
-      showFloating(`-${damage} QUÂNTICO!`, 'crit', 'enemy');
+      showFloating(`-${damage} QUÂNTICO!${isCrit ? ' (CRÍTICO!)' : ''}`, 'crit', 'enemy');
 
       setCombatLog(prev => [
-        `⚡ IMPACTO QUÂNTICO! Kael rasgou a malha espacial causando ${damage} de dano dimensional!`,
+        `⚡ IMPACTO QUÂNTICO! Kael rasgou a malha espacial causando ${damage} de dano dimensional${isCrit ? ' [CRÍTICO!]' : ''}!`,
         ...prev,
       ]);
 
@@ -513,7 +528,7 @@ export const CombatScene: React.FC<{
     setIsEnemyStaggered(true);
     setEnemyStagger(100);
 
-    const pulseDmg = Math.floor(player.atk * 1.25);
+    const pulseDmg = Math.floor(stats.atk * 1.25);
     const nextEnemyHp = Math.max(0, enemy.hp - pulseDmg);
     setEnemy(prev => ({ ...prev, hp: nextEnemyHp }));
     showFloating(`-${pulseDmg} ATORDOR!`, 'stagger', 'enemy');
@@ -540,13 +555,15 @@ export const CombatScene: React.FC<{
     triggerShake();
     setFocus(0);
 
-    const overdriveDmg = Math.floor(player.atk * 3.5) + 40;
+    const isCrit = Math.random() < stats.critChance;
+    const critMultiplier = isCrit ? 1.5 : 1.0;
+    const overdriveDmg = Math.floor(stats.atk * 3.5 * critMultiplier) + 40;
     const nextEnemyHp = Math.max(0, enemy.hp - overdriveDmg);
     setEnemy(prev => ({ ...prev, hp: nextEnemyHp }));
-    showFloating(`💥 SOBRECARGA: -${overdriveDmg}!!`, 'crit', 'enemy');
+    showFloating(`💥 SOBRECARGA: -${overdriveDmg}!!${isCrit ? ' (CRÍTICO!)' : ''}`, 'crit', 'enemy');
 
     setCombatLog(prev => [
-      `🌟 SOBRECARGA DE MATRIZ 2.0! Kael canalizou o poder de todas as realidades liberando ${overdriveDmg} DE DANO TOTAL!`,
+      `🌟 SOBRECARGA DE MATRIZ 3.0! Kael canalizou o poder de todas as realidades liberando ${overdriveDmg} DE DANO TOTAL${isCrit ? ' [CRÍTICO!]' : ''}!`,
       ...prev,
     ]);
 
@@ -612,14 +629,28 @@ export const CombatScene: React.FC<{
                   </span>
                 )}
               </div>
-              <span className="text-xs font-mono text-slate-300">{player.hp}/{player.maxHp} HP</span>
+              <span className="text-xs font-mono text-slate-300">{player.hp}/{stats.maxHp} HP</span>
             </div>
             {/* HP Bar */}
-            <div className="w-full bg-slate-800 h-3 rounded-full overflow-hidden border border-slate-700 mb-2">
+            <div className="w-full bg-slate-800 h-3 rounded-full overflow-hidden border border-slate-700 mb-1">
               <div
                 className="bg-gradient-to-r from-cyan-500 to-emerald-400 h-full transition-all duration-300"
-                style={{ width: `${Math.max(0, (player.hp / player.maxHp) * 100)}%` }}
+                style={{ width: `${Math.max(0, (player.hp / stats.maxHp) * 100)}%` }}
               />
+            </div>
+            {/* Equipment & Stats Badges */}
+            <div className="flex items-center gap-2 text-[9px] font-mono text-slate-400 mb-2">
+              <span className="text-cyan-300 font-bold">ATK {stats.atk}</span>
+              <span>•</span>
+              <span className="text-indigo-300 font-bold">DEF {stats.def}</span>
+              <span>•</span>
+              <span className="text-fuchsia-300 font-bold">CRIT {Math.round(stats.critChance * 100)}%</span>
+              {stats.damageReductionPercent > 0 && (
+                <>
+                  <span>•</span>
+                  <span className="text-emerald-300 font-bold">ESCUDO -{Math.round(stats.damageReductionPercent * 100)}%</span>
+                </>
+              )}
             </div>
             {/* Focus Bar */}
             <div className="flex justify-between items-center text-[10px] text-fuchsia-300 font-mono mb-0.5">
