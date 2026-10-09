@@ -12,15 +12,17 @@ import {
   RefreshCw,
   Radio,
   Layers,
-  ChevronRight
+  ChevronRight,
+  Award
 } from 'lucide-react';
 import { AtmosphericCanvas } from '../components/AtmosphericCanvas';
 import { ProgressionHUD } from '../components/ProgressionHUD';
 import { KaelAvatar } from '../components/KaelAvatar';
-import { FragmentadoAvatar } from '../components/FragmentadoAvatar';
+import { FragmentadoAvatar, EnemyAnimState } from '../components/FragmentadoAvatar';
 import { PlayerState, EnemyState, EnemyIntent } from '../types/game';
 import { audio } from '../systems/AudioEngine';
 import { StatCalculator } from '../systems/StatCalculator';
+import { TacticalChoice } from '../components/BossConfrontationModal';
 
 interface FloatingMessage {
   id: number;
@@ -37,10 +39,25 @@ export const CombatScene: React.FC<{
   onVictory: () => void;
   onDefeat: () => void;
   onNexusClick?: () => void;
-}> = ({ player, setPlayer, enemy, setEnemy, onVictory, onDefeat, onNexusClick }) => {
+  tacticalChoice?: TacticalChoice;
+  realm?: string;
+}> = ({
+  player,
+  setPlayer,
+  enemy,
+  setEnemy,
+  onVictory,
+  onDefeat,
+  onNexusClick,
+  tacticalChoice,
+  realm = 'realm-alpha',
+}) => {
   const stats = StatCalculator.calculate(player);
   const [turn, setTurn] = useState<number>(1);
-  const [focus, setFocus] = useState<number>(player.focus ?? 30);
+  const [focus, setFocus] = useState<number>(() => {
+    if (tacticalChoice?.effectType === 'FOCUS_MAX') return 100;
+    return player.focus ?? 30;
+  });
   const [combo, setCombo] = useState<number>(0);
   const [isDefending, setIsDefending] = useState<boolean>(false);
   const [isDodging, setIsDodging] = useState<boolean>(false);
@@ -50,18 +67,31 @@ export const CombatScene: React.FC<{
   const [quantumCooldown, setQuantumCooldown] = useState<number>(0);
   const [cronoCooldown, setCronoCooldown] = useState<number>(0);
   const [pulseCooldown, setPulseCooldown] = useState<number>(0);
+  const [companionCooldown, setCompanionCooldown] = useState<number>(0);
+  const [selectedCompanion, setSelectedCompanion] = useState<'LYRA' | 'MARCUS'>('LYRA');
 
   // Boss & Enemy Phase State
   const [enemyPhase, setEnemyPhase] = useState<number>(enemy.phase ?? 1);
   const [enemyMaxPhases, setEnemyMaxPhases] = useState<number>(() => {
-    if (enemy.name.includes('ARQUITETO')) return 3;
-    if (enemy.name.includes('AVATAR DA RUPTURA') || enemy.name.includes('GUARDIÃO INDUSTRIAL')) return 2;
+    if (enemy.maxPhases && enemy.maxPhases > 1) return enemy.maxPhases;
+    if (enemy.name.includes('ARQUITETO') || enemy.name.includes('ECO PRIMORDIAL')) return 3;
+    if (
+      enemy.name.includes('AVATAR DA RUPTURA') ||
+      enemy.name.includes('GUARDIÃO INDUSTRIAL') ||
+      enemy.name.includes('CARTÓGRAFO') ||
+      enemy.name.includes('SENTINELA')
+    ) {
+      return 2;
+    }
     return 1;
   });
   const [phaseAnnounced, setPhaseAnnounced] = useState<string | null>(null);
 
   // Enemy Intent & Stagger
-  const [enemyStagger, setEnemyStagger] = useState<number>(0);
+  const [enemyStagger, setEnemyStagger] = useState<number>(() => {
+    if (tacticalChoice?.effectType === 'INITIAL_STAGGER') return tacticalChoice.effectValue;
+    return 0;
+  });
   const [isEnemyStaggered, setIsEnemyStaggered] = useState<boolean>(false);
   const [enemyIntent, setEnemyIntent] = useState<EnemyIntent>({
     type: 'LIGHT_ATTACK',
@@ -69,14 +99,50 @@ export const CombatScene: React.FC<{
     power: enemy.atk,
   });
 
-  const [combatLog, setCombatLog] = useState<string[]>([
-    `Sistemas táticos de combate RUPTURA 2.0 engajados contra ${enemy.name}.`,
-  ]);
+  const [combatLog, setCombatLog] = useState<string[]>(() => {
+    const logs = [`Sistemas táticos de combate RUPTURA 4.0 engajados contra ${enemy.name}.`];
+    if (tacticalChoice) {
+      logs.unshift(`⚡ VANTAGEM TÁTICA ATIVA: ${tacticalChoice.label} (${tacticalChoice.buffName})`);
+    }
+    return logs;
+  });
+
   const [isEnemyTurn, setIsEnemyTurn] = useState<boolean>(false);
   const [kaelAnim, setKaelAnim] = useState<'idle' | 'attack' | 'defend' | 'hit'>('idle');
-  const [enemyAnim, setEnemyAnim] = useState<'idle' | 'attack' | 'hit'>('idle');
+  const [enemyAnim, setEnemyAnim] = useState<EnemyAnimState>('idle');
   const [floatingMessages, setFloatingMessages] = useState<FloatingMessage[]>([]);
   const [screenShake, setScreenShake] = useState<boolean>(false);
+
+  // Audio BGM loop integration
+  useEffect(() => {
+    const isBoss = enemyMaxPhases > 1 || Boolean(enemy.boss);
+    audio.playBGM(isBoss ? 'BOSS' : 'COMBAT');
+    return () => {
+      audio.stopBGM();
+    };
+  }, [enemyMaxPhases, enemy.boss]);
+
+  // Apply initial damage from tactical choice if present
+  useEffect(() => {
+    if (tacticalChoice?.effectType === 'INITIAL_DAMAGE') {
+      const dmg = tacticalChoice.effectValue;
+      setEnemy(prev => ({ ...prev, hp: Math.max(1, prev.hp - dmg) }));
+      showFloating(`-${dmg} DANO INICIAL!`, 'crit', 'enemy');
+      audio.playHeavyHit();
+    }
+  }, []);
+
+  // Update enemy telegraph animation and sound on intent change
+  useEffect(() => {
+    if (enemyIntent.type === 'HEAVY_TELEGRAPH' || enemyIntent.type === 'CHANNELING') {
+      setEnemyAnim('telegraph');
+      audio.playTelegraphWarning();
+    } else if (isEnemyStaggered) {
+      setEnemyAnim('stagger');
+    } else if (enemyAnim === 'telegraph') {
+      setEnemyAnim('idle');
+    }
+  }, [enemyIntent, isEnemyStaggered]);
 
   // Generate next enemy intention based on boss status and phase
   const generateEnemyIntent = (currentTurn: number, currentPhase: number): EnemyIntent => {
@@ -93,7 +159,6 @@ export const CombatScene: React.FC<{
 
     if (isBoss) {
       if (currentPhase === 3) {
-        // Final Architect phase: devastating attacks
         return {
           type: 'HEAVY_TELEGRAPH',
           description: '⚡ SINGULARIDADE CÓSMICA (COLAPSO DE REALIDADE)',
@@ -159,7 +224,7 @@ export const CombatScene: React.FC<{
   };
 
   // Turn resolution for enemy
-  const handleEnemyTurn = (currentKaelHp: number, defending: boolean, dodging: boolean, wasInterrupt: boolean = false) => {
+  const handleEnemyTurn = (currentKaelHp: number, defending: boolean, dodging: boolean) => {
     setIsEnemyTurn(true);
 
     if (isEnemyStaggered) {
@@ -170,6 +235,7 @@ export const CombatScene: React.FC<{
       setIsDefending(false);
       setIsDodging(false);
       setTurn(t => t + 1);
+      setEnemyAnim('idle');
       setEnemyIntent(generateEnemyIntent(turn + 1, enemyPhase));
       return;
     }
@@ -180,9 +246,10 @@ export const CombatScene: React.FC<{
     setTimeout(() => {
       setEnemyAnim('idle');
 
-      // Check Perfect Dodge
+      // Check Perfect Dodge (including tactical choice bonus)
+      const tacticalDodgeBonus = tacticalChoice?.effectType === 'BONUS_DODGE' ? tacticalChoice.effectValue : 0;
       if (dodging) {
-        const dodgeChance = 0.65 + stats.dodgeBonus;
+        const dodgeChance = 0.65 + stats.dodgeBonus + tacticalDodgeBonus;
         if (enemyIntent.type === 'HEAVY_TELEGRAPH' || Math.random() < dodgeChance) {
           audio.playDodge();
           showFloating('ESQUIVA PERFEITA!', 'dodge', 'kael');
@@ -214,9 +281,10 @@ export const CombatScene: React.FC<{
         }
       }
 
-      // Calculate incoming damage using stats.def and damageReductionPercent
+      // Calculate incoming damage using stats.def + tacticalDefBonus
+      const tacticalDefBonus = tacticalChoice?.effectType === 'BONUS_DEF' ? tacticalChoice.effectValue : 0;
       let rawDmg = enemyIntent.power;
-      const defReduction = Math.floor(stats.def * 0.5);
+      const defReduction = Math.floor((stats.def + tacticalDefBonus) * 0.5);
       let baseMitigated = Math.max(2, rawDmg - defReduction);
       const passiveAbsorption = Math.floor(baseMitigated * stats.damageReductionPercent);
       let finalDamage = Math.max(1, baseMitigated - passiveAbsorption);
@@ -243,7 +311,6 @@ export const CombatScene: React.FC<{
       } else {
         showFloating(`-${finalDamage}`, 'damage', 'kael');
         setCombatLog(prev => [`${enemy.name} atingiu KAEL com ${finalDamage} de dano.`, ...prev]);
-        // Reset combo if unmitigated hit taken
         setCombo(0);
       }
 
@@ -253,6 +320,8 @@ export const CombatScene: React.FC<{
       triggerShake();
 
       if (nextHp <= 0) {
+        audio.stopBGM();
+        audio.playDefeat();
         setTimeout(() => {
           onDefeat();
         }, 600);
@@ -277,6 +346,7 @@ export const CombatScene: React.FC<{
       if (quantumCooldown > 0) setQuantumCooldown(c => Math.max(0, c - 1));
       if (cronoCooldown > 0) setCronoCooldown(c => Math.max(0, c - 1));
       if (pulseCooldown > 0) setPulseCooldown(c => Math.max(0, c - 1));
+      if (companionCooldown > 0) setCompanionCooldown(c => Math.max(0, c - 1));
 
       // Generate next enemy intent
       setEnemyIntent(generateEnemyIntent(turn + 1, enemyPhase));
@@ -289,6 +359,7 @@ export const CombatScene: React.FC<{
         // Transition to next phase of boss!
         const nextPhaseNum = enemyPhase + 1;
         setEnemyPhase(nextPhaseNum);
+        setEnemyAnim('phaseTransition');
         audio.playBossPhase();
         triggerShake();
 
@@ -305,6 +376,23 @@ export const CombatScene: React.FC<{
             newMaxHp = 180;
             newAtk += 8;
           }
+        } else if (enemy.name.includes('CARTÓGRAFO')) {
+          newPhaseName = 'FASE 2: ALINHAMENTO DO VÁCUO ESTELAR';
+          newMaxHp = Math.floor(enemy.maxHp * 1.2);
+          newAtk += 6;
+        } else if (enemy.name.includes('SENTINELA')) {
+          newPhaseName = 'FASE 2: REATOR DE ANTIMATÉRIA DESENCADEADO';
+          newMaxHp = Math.floor(enemy.maxHp * 1.25);
+          newAtk += 7;
+        } else if (enemy.name.includes('ECO PRIMORDIAL')) {
+          if (nextPhaseNum === 2) {
+            newPhaseName = 'FASE 2: DUPLICIDADE QUÂNTICA';
+            newMaxHp = Math.floor(enemy.maxHp * 1.1);
+          } else {
+            newPhaseName = 'FASE 3: CONVERGÊNCIA DAS LINHAS TEMPORAIS';
+            newMaxHp = Math.floor(enemy.maxHp * 1.15);
+            newAtk += 8;
+          }
         } else if (enemy.name.includes('AVATAR')) {
           newPhaseName = 'FASE 2: DESDOBRAMENTO MULTIVERSAL';
           newMaxHp = 190;
@@ -312,7 +400,10 @@ export const CombatScene: React.FC<{
         }
 
         setPhaseAnnounced(newPhaseName);
-        setTimeout(() => setPhaseAnnounced(null), 3000);
+        setTimeout(() => {
+          setPhaseAnnounced(null);
+          setEnemyAnim('idle');
+        }, 2200);
 
         setEnemy(prev => ({
           ...prev,
@@ -328,6 +419,8 @@ export const CombatScene: React.FC<{
         ]);
       } else {
         // Victory!
+        audio.stopBGM();
+        audio.playVictory();
         onVictory();
       }
     }
@@ -369,295 +462,289 @@ export const CombatScene: React.FC<{
       setEnemyAnim('hit');
       showFloating(`-${baseDamage}${isCrit ? ' (CRÍTICO!)' : ''}`, isCrit ? 'crit' : 'damage', 'enemy');
 
-      // Generate focus based on stats.focusRecovery
-      const gainedFocus = 20 + Math.floor(stats.focusRecovery * 0.5);
-      setFocus(f => Math.min(100, f + gainedFocus));
+      setTimeout(() => setEnemyAnim('idle'), 350);
 
       setCombatLog(prev => [
-        `🗡️ KAEL desferiu Ataque Rápido [Combo x${nextCombo}] causando ${baseDamage} de dano${isCrit ? ' [CRÍTICO!]' : ''}! (+${gainedFocus} Foco)`,
+        `Kael desferiu Corte Ágil causando ${baseDamage} de dano${isCrit ? ' [CRÍTICO!]' : ''}${
+          interrupted ? ' e interrompeu a canalização!' : ''
+        }.`,
         ...prev,
       ]);
 
-      setTimeout(() => {
-        setEnemyAnim('idle');
-        if (nextEnemyHp <= 0) {
-          checkVictoryOrNextPhase(nextEnemyHp);
-        } else {
-          handleEnemyTurn(player.hp, false, false, interrupted);
+      if (nextEnemyHp <= 0) {
+        checkVictoryOrNextPhase(nextEnemyHp);
+      } else {
+        if (nextStagger >= 100 && !isEnemyStaggered) {
+          setIsEnemyStaggered(true);
+          showFloating('RUPTURA DE POSTURA!', 'stagger', 'enemy');
+          audio.playBossPhase();
         }
-      }, 400);
-    }, 280);
+        setTimeout(() => handleEnemyTurn(player.hp, false, false), 450);
+      }
+    }, 300);
   };
 
-  // 2. ATAQUE PESADO (Disparo de Ruptura)
+  // 2. ATAQUE PESADO (Pulso de Ruptura Cinético)
   const handleHeavyAttack = () => {
-    if (isEnemyTurn || focus < 25) return;
+    if (isEnemyTurn) return;
     audio.playHeavyHit();
-    setKaelAnim('attack');
     triggerShake();
+    setKaelAnim('attack');
 
-    const nextFocus = Math.max(0, focus - 25);
-    setFocus(nextFocus);
-
-    const comboBonus = 1 + combo * 0.15;
     const isCrit = Math.random() < stats.critChance;
-    const critMultiplier = isCrit ? 1.75 : 1.0;
-    const heavyDamage = Math.floor(stats.atk * 1.65 * comboBonus * critMultiplier);
+    const critMultiplier = isCrit ? 1.7 : 1.0;
+    const heavyDamage = Math.floor(stats.atk * 1.5 * critMultiplier);
+
     const nextStagger = Math.min(100, enemyStagger + 45);
     setEnemyStagger(nextStagger);
-
-    let willStagger = nextStagger >= 100;
-    if (willStagger) {
-      setIsEnemyStaggered(true);
-      showFloating('INIMIGO EM STAGGER!', 'stagger', 'enemy');
-    }
 
     setTimeout(() => {
       setKaelAnim('idle');
       const nextEnemyHp = Math.max(0, enemy.hp - heavyDamage);
       setEnemy(prev => ({ ...prev, hp: nextEnemyHp }));
       setEnemyAnim('hit');
-      showFloating(`-${heavyDamage} PESADO!${isCrit ? ' (CRÍTICO!)' : ''}`, 'crit', 'enemy');
+      showFloating(`-${heavyDamage}${isCrit ? ' (CRÍTICO!)' : ''}`, isCrit ? 'crit' : 'damage', 'enemy');
+
+      setTimeout(() => setEnemyAnim('idle'), 400);
 
       setCombatLog(prev => [
-        `💥 IMPACTO PESADO! Kael desferiu Disparo de Ruptura causando ${heavyDamage} de dano massivo${isCrit ? ' [CRÍTICO!]' : ''}!`,
+        `Kael desferiu IMPACTO PESADO causando ${heavyDamage} de dano${isCrit ? ' [CRÍTICO!]' : ''}!`,
         ...prev,
       ]);
 
-      setTimeout(() => {
-        setEnemyAnim('idle');
-        if (nextEnemyHp <= 0) {
-          checkVictoryOrNextPhase(nextEnemyHp);
-        } else {
-          handleEnemyTurn(player.hp, false, false);
+      if (nextEnemyHp <= 0) {
+        checkVictoryOrNextPhase(nextEnemyHp);
+      } else {
+        if (nextStagger >= 100 && !isEnemyStaggered) {
+          setIsEnemyStaggered(true);
+          showFloating('RUPTURA DE POSTURA!', 'stagger', 'enemy');
+          audio.playBossPhase();
         }
-      }, 400);
+        setTimeout(() => handleEnemyTurn(player.hp, false, false), 450);
+      }
     }, 350);
   };
 
-  // 3. ESQUIVA TÁTICA
-  const handleDodge = () => {
-    if (isEnemyTurn) return;
-    audio.playDodge();
-    setIsDodging(true);
-    setKaelAnim('defend');
-    setCombatLog(prev => ['💨 KAEL entrou em postura de Esquiva Tática! Preparado para desviar e contra-atacar.', ...prev]);
-
-    setTimeout(() => {
-      handleEnemyTurn(player.hp, false, true);
-    }, 450);
-  };
-
-  // 4. DEFENDER (Matriz Defensiva)
+  // 3. DEFENDER (Matriz de Escudo Photon)
   const handleDefend = () => {
     if (isEnemyTurn) return;
     audio.playShield();
     setIsDefending(true);
     setKaelAnim('defend');
-    const gainedFocus = 15 + Math.floor(stats.focusRecovery * 0.5);
-    setFocus(f => Math.min(100, f + gainedFocus));
-    setCombatLog(prev => [`🛡️ KAEL ativou Matriz Defensiva. Dano mitigado e +${gainedFocus} de Foco recuperado.`, ...prev]);
+    setFocus(f => Math.min(100, f + 25));
+    showFloating('+25 FOCO & ESCUDO ATIVO', 'heal', 'kael');
+    setCombatLog(prev => [`Kael ativou Matriz Defensiva. Danos absorvidos em 65% neste turno.`, ...prev]);
 
     setTimeout(() => {
       handleEnemyTurn(player.hp, true, false);
     }, 450);
   };
 
-  // 5. HABILIDADE 1: IMPACTO QUÂNTICO (Clássica RUPTURA)
-  const handleQuantumImpact = () => {
-    if (isEnemyTurn || quantumCooldown > 0 || focus < 35) return;
+  // 4. ESQUIVAR (Salto de Fase Dimensional)
+  const handleDodge = () => {
+    if (isEnemyTurn) return;
+    audio.playDodge();
+    setIsDodging(true);
+    setFocus(f => Math.min(100, f + 10));
+    showFloating('ESQUIVA PREPARADA', 'dodge', 'kael');
+    setCombatLog(prev => [`Kael calibrou os propulsores para Esquiva Perfeita contra o golpe inimigo.`, ...prev]);
+
+    setTimeout(() => {
+      handleEnemyTurn(player.hp, false, true);
+    }, 400);
+  };
+
+  // 5. HABILIDADE: LÂMINA QUÂNTICA
+  const handleQuantumBlade = () => {
+    if (isEnemyTurn || focus < 35 || quantumCooldown > 0) return;
     audio.playQuantum();
-    setKaelAnim('attack');
     triggerShake();
+    setFocus(f => f - 35);
+    setQuantumCooldown(2);
+    setKaelAnim('attack');
 
-    setFocus(f => Math.max(0, f - 35));
-    setQuantumCooldown(3);
-
-    const isCrit = Math.random() < stats.critChance;
-    const critMultiplier = isCrit ? 1.6 : 1.0;
-    const damage = Math.floor(stats.atk * 2.1 * critMultiplier) + 20;
+    const skillDamage = Math.floor(stats.atk * 2.1);
+    showFloating('LÂMINA QUÂNTICA!', 'crit', 'kael');
 
     setTimeout(() => {
       setKaelAnim('idle');
-      const nextEnemyHp = Math.max(0, enemy.hp - damage);
+      const nextEnemyHp = Math.max(0, enemy.hp - skillDamage);
       setEnemy(prev => ({ ...prev, hp: nextEnemyHp }));
       setEnemyAnim('hit');
-      showFloating(`-${damage} QUÂNTICO!${isCrit ? ' (CRÍTICO!)' : ''}`, 'crit', 'enemy');
+      showFloating(`-${skillDamage} (CORTE PURO)`, 'crit', 'enemy');
+      setTimeout(() => setEnemyAnim('idle'), 350);
 
       setCombatLog(prev => [
-        `⚡ IMPACTO QUÂNTICO! Kael rasgou a malha espacial causando ${damage} de dano dimensional${isCrit ? ' [CRÍTICO!]' : ''}!`,
+        `⚡ HABILIDADE: Lâmina Quântica perfurou a integridade dimensional de ${enemy.name} causando ${skillDamage} de dano!`,
         ...prev,
       ]);
 
-      setTimeout(() => {
-        setEnemyAnim('idle');
-        if (nextEnemyHp <= 0) {
-          checkVictoryOrNextPhase(nextEnemyHp);
-        } else {
-          handleEnemyTurn(player.hp, false, false);
-        }
-      }, 400);
-    }, 400);
+      if (nextEnemyHp <= 0) {
+        checkVictoryOrNextPhase(nextEnemyHp);
+      } else {
+        setTimeout(() => handleEnemyTurn(player.hp, false, false), 450);
+      }
+    }, 300);
   };
 
-  // 6. HABILIDADE 2: BARREIRA DE CRONOFLUXO
-  const handleCronoshield = () => {
-    if (isEnemyTurn || cronoCooldown > 0 || focus < 40) return;
+  // 6. HABILIDADE: CRONO-ESCUDO
+  const handleCronoShield = () => {
+    if (isEnemyTurn || focus < 40 || cronoCooldown > 0) return;
     audio.playShield();
-    setFocus(f => Math.max(0, f - 40));
-    setCronoCooldown(4);
+    setFocus(f => f - 40);
+    setCronoCooldown(3);
     setCronoshieldActive(true);
     showFloating('CRONO-ESCUDO ATIVO!', 'heal', 'kael');
     setCombatLog(prev => [
-      `⌛ BARREIRA DE CRONOFLUXO ativada! O próximo ataque absorverá o impacto e curará Kael.`,
+      `⌛ HABILIDADE: Crono-Escudo ativo! O próximo dano será convertido em 80% de regeneração de vida!`,
       ...prev,
     ]);
-
-    setTimeout(() => {
-      handleEnemyTurn(player.hp, false, false);
-    }, 450);
   };
 
-  // 7. HABILIDADE 3: PULSO DE RUPTURA (Atordoamento)
-  const handlePulseRupture = () => {
-    if (isEnemyTurn || pulseCooldown > 0 || focus < 50) return;
-    audio.playHeavyHit();
+  // 7. HABILIDADE: PULSO DE DESLOCAMENTO
+  const handleDisplacementPulse = () => {
+    if (isEnemyTurn || focus < 50 || pulseCooldown > 0) return;
+    audio.playQuantum();
     triggerShake();
-    setFocus(f => Math.max(0, f - 50));
-    setPulseCooldown(4);
-    setIsEnemyStaggered(true);
+    setFocus(f => f - 50);
+    setPulseCooldown(3);
     setEnemyStagger(100);
-
-    const pulseDmg = Math.floor(stats.atk * 1.25);
-    const nextEnemyHp = Math.max(0, enemy.hp - pulseDmg);
-    setEnemy(prev => ({ ...prev, hp: nextEnemyHp }));
-    showFloating(`-${pulseDmg} ATORDOR!`, 'stagger', 'enemy');
-
+    setIsEnemyStaggered(true);
+    setEnemyAnim('stagger');
+    showFloating('ATORDOAMENTO INSTANTÂNEO!', 'stagger', 'enemy');
     setCombatLog(prev => [
-      `🌀 PULSO DE RUPTURA! Onda de choque dimensional atordoou completamente ${enemy.name}!`,
+      `🌀 HABILIDADE: Pulso de Deslocamento quebrou instantaneamente a estabilidade de fase de ${enemy.name}!`,
       ...prev,
     ]);
+  };
+
+  // 8. HABILIDADE SUPREMA: OVERDRIVE DA MATRIZ
+  const handleOverdrive = () => {
+    if (isEnemyTurn || focus < 100) return;
+    audio.playBossPhase();
+    triggerShake();
+    setFocus(0);
+    setKaelAnim('attack');
+
+    const ultimateDamage = Math.floor(stats.atk * 3.4);
+    showFloating('🔥 OVERDRIVE TOTAL DA MATRIZ!', 'crit', 'kael');
 
     setTimeout(() => {
+      setKaelAnim('idle');
+      const nextEnemyHp = Math.max(0, enemy.hp - ultimateDamage);
+      setEnemy(prev => ({ ...prev, hp: nextEnemyHp }));
+      setEnemyAnim('hit');
+      showFloating(`-${ultimateDamage} (CATACLISMO QUÂNTICO)`, 'crit', 'enemy');
+      setTimeout(() => setEnemyAnim('idle'), 450);
+
+      setCombatLog(prev => [
+        `💥 SUPREMA: Kael desencadeou o OVERDRIVE DA MATRIZ causando ${ultimateDamage} de dano cósmico puro!`,
+        ...prev,
+      ]);
+
       if (nextEnemyHp <= 0) {
         checkVictoryOrNextPhase(nextEnemyHp);
       } else {
-        handleEnemyTurn(player.hp, false, false);
+        setTimeout(() => handleEnemyTurn(player.hp, false, false), 500);
       }
     }, 400);
   };
 
-  // 8. HABILIDADE SUPREMA: SOBRECARGA DE MATRIZ
-  const handleOverdrive = () => {
-    if (isEnemyTurn || focus < 100) return;
-    audio.playQuantum();
-    audio.playHeavyHit();
-    triggerShake();
-    setFocus(0);
+  // 9. PROTOCOLO DE SUPORTE ALIADO (LYRA / MARCUS)
+  const handleCompanionSupport = () => {
+    if (isEnemyTurn || companionCooldown > 0) return;
+    audio.playCompanionSupport();
+    setCompanionCooldown(3);
 
-    const isCrit = Math.random() < stats.critChance;
-    const critMultiplier = isCrit ? 1.5 : 1.0;
-    const overdriveDmg = Math.floor(stats.atk * 3.5 * critMultiplier) + 40;
-    const nextEnemyHp = Math.max(0, enemy.hp - overdriveDmg);
-    setEnemy(prev => ({ ...prev, hp: nextEnemyHp }));
-    showFloating(`💥 SOBRECARGA: -${overdriveDmg}!!${isCrit ? ' (CRÍTICO!)' : ''}`, 'crit', 'enemy');
-
-    setCombatLog(prev => [
-      `🌟 SOBRECARGA DE MATRIZ 3.0! Kael canalizou o poder de todas as realidades liberando ${overdriveDmg} DE DANO TOTAL${isCrit ? ' [CRÍTICO!]' : ''}!`,
-      ...prev,
-    ]);
-
-    setTimeout(() => {
-      if (nextEnemyHp <= 0) {
-        checkVictoryOrNextPhase(nextEnemyHp);
-      } else {
-        handleEnemyTurn(player.hp, false, false);
-      }
-    }, 500);
+    if (selectedCompanion === 'LYRA') {
+      const healAmt = 45;
+      setPlayer(p => ({ ...p, hp: Math.min(stats.maxHp, p.hp + healAmt) }));
+      setFocus(f => Math.min(100, f + 30));
+      showFloating(`+${healAmt} HP (LYRA)`, 'heal', 'kael');
+      setCombatLog(prev => [
+        `📡 SUPORTE TÁTICO: Lyra injetou nanites restauradores (+${healAmt} HP e +30 Foco)!`,
+        ...prev,
+      ]);
+    } else {
+      const staggerAmt = 40;
+      setEnemyStagger(s => Math.min(100, s + staggerAmt));
+      showFloating(`+${staggerAmt}% POSTURA QUEBRADA!`, 'stagger', 'enemy');
+      setCombatLog(prev => [
+        `🛡️ SUPORTE TÁTICO: Marcus disparou salva balística pesada (+${staggerAmt}% de Quebra de Postura)!`,
+        ...prev,
+      ]);
+    }
   };
 
   return (
-    <div className="relative flex-1 flex flex-col justify-between overflow-hidden h-full bg-slate-950">
-      <AtmosphericCanvas screenShake={screenShake} />
+    <div className="relative flex-1 min-h-0 flex flex-col justify-between overflow-hidden bg-slate-950 text-slate-100 font-mono select-none">
+      <AtmosphericCanvas realm={realm} screenShake={screenShake} />
       <ProgressionHUD player={player} onNexusClick={onNexusClick} />
 
-      {/* Boss Phase Announcement Overlay */}
-      {phaseAnnounced && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md animate-pulse pointer-events-none">
-          <div className="text-center p-6 border-y-2 border-rose-500 w-full bg-rose-950/40">
-            <span className="text-xs font-mono tracking-[0.4em] text-rose-400 uppercase">TRANSIÇÃO DE CHEFE</span>
-            <h2 className="text-3xl md:text-5xl font-black text-rose-200 mt-2 tracking-widest">{phaseAnnounced}</h2>
-            <p className="text-rose-300 text-xs mt-2 font-mono">Padrões de combate elevados ao nível máximo!</p>
+      {/* Floating Damage / Combat Feedback Numbers */}
+      <div className="absolute inset-0 pointer-events-none z-30 flex items-center justify-center">
+        {floatingMessages.map(msg => (
+          <div
+            key={msg.id}
+            className={`absolute animate-bounce text-sm sm:text-base md:text-xl font-black drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] ${
+              msg.target === 'kael' ? 'left-8 sm:left-24 md:left-40' : 'right-8 sm:right-24 md:right-40'
+            } ${
+              msg.type === 'crit'
+                ? 'text-amber-300 scale-125'
+                : msg.type === 'heal'
+                ? 'text-emerald-300'
+                : msg.type === 'dodge'
+                ? 'text-cyan-300'
+                : msg.type === 'combo'
+                ? 'text-fuchsia-300'
+                : msg.type === 'stagger'
+                ? 'text-rose-400 scale-125'
+                : 'text-rose-400'
+            }`}
+          >
+            {msg.text}
           </div>
+        ))}
+      </div>
+
+      {/* Phase Transition Alert Banner */}
+      {phaseAnnounced && (
+        <div className="absolute top-16 left-0 right-0 z-40 bg-gradient-to-r from-rose-600/90 via-fuchsia-600/90 to-purple-600/90 py-2 sm:py-3 text-center shadow-2xl backdrop-blur-md animate-pulse border-y border-white/30">
+          <p className="text-white font-black tracking-widest text-xs sm:text-sm md:text-base uppercase flex items-center justify-center gap-2">
+            <Zap className="w-4 h-4 animate-spin" />
+            <span>{phaseAnnounced}</span>
+            <Zap className="w-4 h-4 animate-spin" />
+          </p>
         </div>
       )}
 
-      {/* Floating text messages */}
-      {floatingMessages.map(msg => (
-        <div
-          key={msg.id}
-          className={`fixed z-40 top-1/3 ${
-            msg.target === 'kael' ? 'left-1/4' : 'right-1/4'
-          } -translate-y-1/2 font-black text-xl md:text-3xl drop-shadow-[0_0_20px_rgba(0,0,0,0.8)] font-mono animate-bounce ${
-            msg.type === 'damage'
-              ? 'text-rose-400'
-              : msg.type === 'heal'
-              ? 'text-emerald-400'
-              : msg.type === 'dodge'
-              ? 'text-cyan-300'
-              : msg.type === 'combo'
-              ? 'text-amber-300'
-              : 'text-fuchsia-400'
-          }`}
-        >
-          {msg.text}
-        </div>
-      ))}
-
-      {/* Main Combat Arena */}
-      <div className="relative z-10 flex-1 flex flex-col justify-between px-3 md:px-6 py-2 max-w-5xl mx-auto w-full">
+      {/* Main Combat Arena Container */}
+      <div className="relative z-10 flex-1 flex flex-col justify-between px-2 sm:px-4 md:px-6 py-2 max-w-5xl mx-auto w-full overflow-y-auto min-h-0">
         {/* Top Health and Status Bars */}
-        <div className="grid grid-cols-2 gap-3 md:gap-6 bg-slate-950/80 border border-slate-800 p-3 md:p-4 rounded-2xl backdrop-blur-md">
+        <div className="grid grid-cols-2 gap-2 sm:gap-4 md:gap-6 bg-slate-950/85 p-2 sm:p-3 md:p-4 rounded-xl border border-cyan-500/30 backdrop-blur-md shadow-xl shrink-0">
           {/* Kael Info */}
           <div>
             <div className="flex justify-between items-center mb-1">
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-cyan-400 text-xs md:text-sm font-mono">{player.name}</span>
-                {combo > 1 && (
-                  <span className="text-[10px] px-1.5 py-0.2 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded font-bold">
-                    COMBO x{combo}
-                  </span>
-                )}
-              </div>
-              <span className="text-xs font-mono text-slate-300">{player.hp}/{stats.maxHp} HP</span>
+              <span className="font-bold text-cyan-300 text-[11px] sm:text-xs md:text-sm font-mono truncate">
+                {player.name} (LVL {player.level})
+              </span>
+              <span className="text-[10px] sm:text-xs font-mono text-slate-300">
+                {player.hp}/{stats.maxHp} HP
+              </span>
             </div>
-            {/* HP Bar */}
-            <div className="w-full bg-slate-800 h-3 rounded-full overflow-hidden border border-slate-700 mb-1">
+            {/* Player HP Bar */}
+            <div className="w-full bg-slate-800 h-2.5 sm:h-3 rounded-full overflow-hidden border border-slate-700 mb-1.5 sm:mb-2">
               <div
-                className="bg-gradient-to-r from-cyan-500 to-emerald-400 h-full transition-all duration-300"
+                className="bg-gradient-to-r from-cyan-500 via-teal-400 to-emerald-400 h-full transition-all duration-300"
                 style={{ width: `${Math.max(0, (player.hp / stats.maxHp) * 100)}%` }}
               />
             </div>
-            {/* Equipment & Stats Badges */}
-            <div className="flex items-center gap-2 text-[9px] font-mono text-slate-400 mb-2">
-              <span className="text-cyan-300 font-bold">ATK {stats.atk}</span>
-              <span>•</span>
-              <span className="text-indigo-300 font-bold">DEF {stats.def}</span>
-              <span>•</span>
-              <span className="text-fuchsia-300 font-bold">CRIT {Math.round(stats.critChance * 100)}%</span>
-              {stats.damageReductionPercent > 0 && (
-                <>
-                  <span>•</span>
-                  <span className="text-emerald-300 font-bold">ESCUDO -{Math.round(stats.damageReductionPercent * 100)}%</span>
-                </>
-              )}
-            </div>
             {/* Focus Bar */}
-            <div className="flex justify-between items-center text-[10px] text-fuchsia-300 font-mono mb-0.5">
+            <div className="flex justify-between items-center text-[9px] sm:text-[10px] text-fuchsia-300 font-mono mb-0.5">
               <span>FOCO QUÂNTICO</span>
-              <span>{focus}/100</span>
+              <span>{focus}%</span>
             </div>
-            <div className="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden border border-fuchsia-900/60">
+            <div className="w-full bg-slate-900 h-1 sm:h-1.5 rounded-full overflow-hidden border border-fuchsia-900/60">
               <div
                 className="bg-gradient-to-r from-fuchsia-600 to-pink-500 h-full transition-all duration-200"
                 style={{ width: `${focus}%` }}
@@ -668,31 +755,31 @@ export const CombatScene: React.FC<{
           {/* Enemy Info */}
           <div>
             <div className="flex justify-between items-center mb-1">
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-rose-400 text-xs md:text-sm font-mono truncate max-w-[140px] md:max-w-none">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <span className="font-bold text-rose-400 text-[11px] sm:text-xs md:text-sm font-mono truncate max-w-[100px] sm:max-w-[140px] md:max-w-none">
                   {enemy.name}
                 </span>
                 {enemyMaxPhases > 1 && (
-                  <span className="text-[10px] px-1.5 py-0.2 bg-rose-600/30 text-rose-300 border border-rose-500/40 rounded font-bold">
-                    FASE {enemyPhase}/{enemyMaxPhases}
+                  <span className="text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.2 bg-rose-600/30 text-rose-300 border border-rose-500/40 rounded font-bold">
+                    F{enemyPhase}/{enemyMaxPhases}
                   </span>
                 )}
               </div>
-              <span className="text-xs font-mono text-slate-300">{enemy.hp}/{enemy.maxHp} HP</span>
+              <span className="text-[10px] sm:text-xs font-mono text-slate-300">{enemy.hp}/{enemy.maxHp} HP</span>
             </div>
             {/* Enemy HP Bar */}
-            <div className="w-full bg-slate-800 h-3 rounded-full overflow-hidden border border-slate-700 mb-2">
+            <div className="w-full bg-slate-800 h-2.5 sm:h-3 rounded-full overflow-hidden border border-slate-700 mb-1.5 sm:mb-2">
               <div
                 className="bg-gradient-to-r from-rose-500 via-pink-500 to-fuchsia-600 h-full transition-all duration-300"
                 style={{ width: `${Math.max(0, (enemy.hp / enemy.maxHp) * 100)}%` }}
               />
             </div>
             {/* Stagger Bar */}
-            <div className="flex justify-between items-center text-[10px] text-amber-300 font-mono mb-0.5">
-              <span>POSTURA / STAGGER</span>
+            <div className="flex justify-between items-center text-[9px] sm:text-[10px] text-amber-300 font-mono mb-0.5">
+              <span>POSTURA</span>
               <span>{enemyStagger}%</span>
             </div>
-            <div className="w-full bg-slate-900 h-1.5 rounded-full overflow-hidden border border-amber-900/60">
+            <div className="w-full bg-slate-900 h-1 sm:h-1.5 rounded-full overflow-hidden border border-amber-900/60">
               <div
                 className="bg-gradient-to-r from-amber-600 to-yellow-400 h-full transition-all duration-200"
                 style={{ width: `${enemyStagger}%` }}
@@ -701,42 +788,48 @@ export const CombatScene: React.FC<{
           </div>
         </div>
 
-        {/* Mid Arena: Avatars and Intent telegraph */}
-        <div className="flex flex-col items-center my-auto py-2">
-          {/* Enemy Intent Telegraph Pill */}
-          <div className="mb-3 px-3 py-1 rounded-full border border-rose-500/40 bg-rose-950/60 backdrop-blur-md flex items-center gap-2 text-xs font-mono text-rose-300">
-            <AlertTriangle className="w-3.5 h-3.5 animate-pulse text-amber-400" />
-            <span className="font-bold">INTENÇÃO:</span>
-            <span className="text-white">{enemyIntent.description}</span>
+        {/* Mid Arena: Avatars, Intent telegraph & confrontation aura */}
+        <div className="flex flex-col items-center my-auto py-1 sm:py-2 shrink-0">
+          {/* Enemy Intent Telegraph Banner */}
+          <div className="mb-2 sm:mb-3 px-3 py-1 rounded-xl border border-rose-500/40 bg-rose-950/70 backdrop-blur-md flex items-center gap-1.5 sm:gap-2 text-[10px] sm:text-xs font-mono text-rose-300 max-w-full truncate shadow-md shadow-rose-950/50">
+            <AlertTriangle className="w-3 sm:w-3.5 h-3 sm:h-3.5 animate-pulse text-amber-400 shrink-0" />
+            <span className="font-bold shrink-0">INTENÇÃO:</span>
+            <span className="text-white truncate">{enemyIntent.description}</span>
           </div>
 
-          <div className="w-full flex items-center justify-between px-4 md:px-16 min-h-[190px]">
+          <div className="w-full flex items-center justify-between px-2 sm:px-6 md:px-16 min-h-[140px] sm:min-h-[170px] md:min-h-[190px]">
             {/* Kael Stance */}
-            <div className="flex flex-col items-center">
+            <div className="flex flex-col items-center scale-90 sm:scale-100 transition-transform">
               <KaelAvatar state={kaelAnim} />
-              <div className="mt-2 flex flex-col items-center gap-1">
-                <span className="text-[10px] md:text-xs font-mono text-cyan-300 bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-500/30">
+              <div className="mt-1 sm:mt-2 flex flex-col items-center gap-1">
+                <span className="text-[9px] sm:text-[10px] md:text-xs font-mono text-cyan-300 bg-cyan-950/80 px-1.5 sm:px-2 py-0.5 rounded border border-cyan-500/30 whitespace-nowrap">
                   {isDefending ? '🛡️ DEFESA ATIVA' : isDodging ? '💨 ESQUIVA PREPARADA' : cronoshieldActive ? '⌛ CRONO-ESCUDO' : 'SISTEMAS PRONTOS'}
                 </span>
               </div>
             </div>
 
             {/* VS Badge and Turn Counter */}
-            <div className="text-center font-mono">
-              <span className="text-xl md:text-2xl font-black text-slate-600 tracking-widest">VS</span>
-              <p className="text-[10px] text-slate-400 mt-1">TURNO {turn}</p>
+            <div className="text-center font-mono shrink-0 px-1">
+              <span className="text-base sm:text-xl md:text-2xl font-black text-slate-600 tracking-widest">VS</span>
+              <p className="text-[9px] sm:text-[10px] text-slate-400 mt-0.5 sm:mt-1">TURNO {turn}</p>
               {isEnemyTurn && (
-                <span className="inline-block mt-1 text-xs text-rose-400 font-bold animate-pulse">
-                  EXECUTANDO...
+                <span className="inline-block mt-0.5 sm:mt-1 text-[10px] sm:text-xs text-rose-400 font-bold animate-pulse">
+                  TURNO INIMIGO...
                 </span>
               )}
             </div>
 
-            {/* Enemy Stance */}
-            <div className="flex flex-col items-center">
-              <FragmentadoAvatar state={enemyAnim} />
-              <div className="mt-2 flex flex-col items-center gap-1">
-                <span className="text-[10px] md:text-xs font-mono text-fuchsia-300 bg-fuchsia-950/80 px-2 py-0.5 rounded border border-fuchsia-500/30">
+            {/* Enemy Stance with custom silhouette and state */}
+            <div className="flex flex-col items-center scale-90 sm:scale-100 transition-transform">
+              <FragmentadoAvatar
+                state={enemyAnim}
+                isBoss={enemyMaxPhases > 1 || Boolean(enemy.boss)}
+                bossPhase={enemyPhase}
+                bossType={enemy.bossType}
+                enemyName={enemy.name}
+              />
+              <div className="mt-1 sm:mt-2 flex flex-col items-center gap-1">
+                <span className="text-[9px] sm:text-[10px] md:text-xs font-mono text-fuchsia-300 bg-fuchsia-950/80 px-1.5 sm:px-2 py-0.5 rounded border border-fuchsia-500/30 whitespace-nowrap">
                   {isEnemyStaggered ? '💫 ATORDOADO' : enemyMaxPhases > 1 ? '👑 ENTIDADE CHEFE' : 'ENTIDADE ANÔMALA'}
                 </span>
               </div>
@@ -745,105 +838,101 @@ export const CombatScene: React.FC<{
         </div>
 
         {/* Combat Actions & Battle Log Panel */}
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 font-mono">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-2 sm:gap-3 font-mono shrink-0">
           {/* Action Buttons Panel */}
-          <div className="md:col-span-8 flex flex-col gap-2">
-            {/* Primary Actions (Fast, Heavy, Dodge, Defend) */}
-            <div className="grid grid-cols-4 gap-2 bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 backdrop-blur-md">
+          <div className="md:col-span-8 flex flex-col gap-1.5 sm:gap-2">
+            {/* Primary Actions (Fast, Heavy, Defend, Dodge) */}
+            <div className="grid grid-cols-4 gap-1.5 sm:gap-2 bg-slate-900/80 p-2 sm:p-2.5 rounded-xl border border-slate-800 backdrop-blur-md">
               <button
                 disabled={isEnemyTurn}
                 onClick={handleFastAttack}
-                className="py-2.5 px-2 bg-gradient-to-b from-cyan-600 to-cyan-700 hover:from-cyan-500 hover:to-cyan-600 disabled:opacity-40 text-white font-bold rounded-lg shadow transition flex flex-col items-center justify-center gap-1 text-[11px]"
+                className="min-h-[48px] py-2 sm:py-2.5 px-1.5 sm:px-2 bg-gradient-to-b from-cyan-600 to-cyan-700 hover:from-cyan-500 hover:to-cyan-600 active:scale-95 disabled:opacity-40 text-white font-bold rounded-lg shadow transition flex flex-col items-center justify-center gap-0.5 sm:gap-1 text-[10px] sm:text-[11px] touch-manipulation cursor-pointer"
                 title="Ataque ágil com sabre de plasma (+20 Foco, acumula combo)"
               >
-                <Sword className="w-4 h-4" />
+                <Sword className="w-3.5 sm:w-4 h-3.5 sm:h-4" />
                 <span>RÁPIDO</span>
-                <span className="text-[9px] text-cyan-200 opacity-80">+20 Foco</span>
-              </button>
-
-              <button
-                disabled={isEnemyTurn || focus < 25}
-                onClick={handleHeavyAttack}
-                className="py-2.5 px-2 bg-gradient-to-b from-amber-600 to-orange-700 hover:from-amber-500 hover:to-orange-600 disabled:opacity-40 text-white font-bold rounded-lg shadow transition flex flex-col items-center justify-center gap-1 text-[11px]"
-                title="Disparo de alta potência. Quebra postura (Custa 25 Foco)"
-              >
-                <Flame className="w-4 h-4 text-amber-200" />
-                <span>PESADO</span>
-                <span className="text-[9px] text-amber-200 opacity-80">25 Foco</span>
               </button>
 
               <button
                 disabled={isEnemyTurn}
-                onClick={handleDodge}
-                className="py-2.5 px-2 bg-gradient-to-b from-indigo-600 to-purple-700 hover:from-indigo-500 hover:to-purple-600 disabled:opacity-40 text-white font-bold rounded-lg shadow transition flex flex-col items-center justify-center gap-1 text-[11px]"
-                title="Esquiva tática. Desvia de ataques pesados e aplica contra-ataque imediato!"
+                onClick={handleHeavyAttack}
+                className="min-h-[48px] py-2 sm:py-2.5 px-1.5 sm:px-2 bg-gradient-to-b from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 active:scale-95 disabled:opacity-40 text-white font-bold rounded-lg shadow transition flex flex-col items-center justify-center gap-0.5 sm:gap-1 text-[10px] sm:text-[11px] touch-manipulation cursor-pointer"
+                title="Impacto pesado cinético (+45 atordoamento na postura inimiga)"
               >
-                <Wind className="w-4 h-4 text-indigo-200" />
-                <span>ESQUIVA</span>
-                <span className="text-[9px] text-indigo-200 opacity-80">Contra-ataque</span>
+                <Flame className="w-3.5 sm:w-4 h-3.5 sm:h-4" />
+                <span>PESADO</span>
               </button>
 
               <button
                 disabled={isEnemyTurn}
                 onClick={handleDefend}
-                className="py-2.5 px-2 bg-gradient-to-b from-blue-700 to-slate-800 hover:from-blue-600 hover:to-slate-700 disabled:opacity-40 text-white font-bold rounded-lg shadow transition flex flex-col items-center justify-center gap-1 text-[11px]"
-                title="Matriz de blindagem (Reduz dano em 65%, +15 Foco)"
+                className="min-h-[48px] py-2 sm:py-2.5 px-1.5 sm:px-2 bg-gradient-to-b from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 active:scale-95 disabled:opacity-40 text-white font-bold rounded-lg shadow transition flex flex-col items-center justify-center gap-0.5 sm:gap-1 text-[10px] sm:text-[11px] touch-manipulation cursor-pointer"
+                title="Escudo de fótons (-65% dano recebido, recupera +25 foco)"
               >
-                <Shield className="w-4 h-4 text-blue-300" />
-                <span>DEFESA</span>
-                <span className="text-[9px] text-blue-200 opacity-80">+15 Foco</span>
+                <Shield className="w-3.5 sm:w-4 h-3.5 sm:h-4" />
+                <span>DEFENDER</span>
+              </button>
+
+              <button
+                disabled={isEnemyTurn}
+                onClick={handleDodge}
+                className="min-h-[48px] py-2 sm:py-2.5 px-1.5 sm:px-2 bg-gradient-to-b from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 active:scale-95 disabled:opacity-40 text-white font-bold rounded-lg shadow transition flex flex-col items-center justify-center gap-0.5 sm:gap-1 text-[10px] sm:text-[11px] touch-manipulation cursor-pointer"
+                title="Salto dimensional de fase (Permite contra-ataque sem sofrer dano)"
+              >
+                <Wind className="w-3.5 sm:w-4 h-3.5 sm:h-4" />
+                <span>ESQUIVAR</span>
               </button>
             </div>
 
-            {/* Matrix Skills (Quantum Impact, Cronoshield, Pulse Rupture, Overdrive) */}
-            <div className="grid grid-cols-4 gap-2 bg-slate-900/60 p-2 rounded-xl border border-fuchsia-900/30">
-              {/* Skill 1 */}
+            {/* Matrix Skills (Quantum Blade, Crono-Shield, Displacement Pulse, Overdrive) */}
+            <div className="grid grid-cols-4 gap-1.5 sm:gap-2 bg-slate-900/80 p-2 sm:p-2.5 rounded-xl border border-slate-800 backdrop-blur-md">
+              {/* Skill 1: Quantum Blade */}
               <button
-                disabled={isEnemyTurn || quantumCooldown > 0 || focus < 35}
-                onClick={handleQuantumImpact}
-                className="py-1.5 px-2 bg-fuchsia-950/80 hover:bg-fuchsia-900 border border-fuchsia-500/40 disabled:opacity-40 text-white rounded-lg transition flex flex-col items-center justify-center text-[10px] relative overflow-hidden"
+                disabled={isEnemyTurn || focus < 35 || quantumCooldown > 0}
+                onClick={handleQuantumBlade}
+                className="min-h-[42px] py-1.5 px-1.5 sm:px-2 bg-cyan-950/80 hover:bg-cyan-900 active:scale-95 border border-cyan-500/40 disabled:opacity-40 text-white rounded-lg transition flex flex-col items-center justify-center text-[9px] sm:text-[10px] relative overflow-hidden touch-manipulation cursor-pointer"
               >
-                <div className="flex items-center gap-1 font-bold text-fuchsia-300">
-                  <Zap className="w-3 h-3" />
-                  <span>QUÂNTICO</span>
+                <div className="flex items-center gap-0.5 sm:gap-1 font-bold text-cyan-300">
+                  <Zap className="w-2.5 sm:w-3 h-2.5 sm:h-3" />
+                  <span>LÂMINA</span>
                 </div>
-                <span className="text-[9px] text-fuchsia-400">35 Foco</span>
+                <span className="text-[8px] sm:text-[9px] text-cyan-400">35 Foco</span>
                 {quantumCooldown > 0 && (
-                  <span className="absolute inset-0 bg-slate-950/90 flex items-center justify-center text-[9px] text-fuchsia-300 font-bold">
+                  <span className="absolute inset-0 bg-slate-950/90 flex items-center justify-center text-[9px] text-cyan-300 font-bold">
                     ({quantumCooldown}T)
                   </span>
                 )}
               </button>
 
-              {/* Skill 2 */}
+              {/* Skill 2: Crono-Shield */}
               <button
-                disabled={isEnemyTurn || cronoCooldown > 0 || focus < 40}
-                onClick={handleCronoshield}
-                className="py-1.5 px-2 bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-500/40 disabled:opacity-40 text-white rounded-lg transition flex flex-col items-center justify-center text-[10px] relative overflow-hidden"
+                disabled={isEnemyTurn || focus < 40 || cronoCooldown > 0}
+                onClick={handleCronoShield}
+                className="min-h-[42px] py-1.5 px-1.5 sm:px-2 bg-emerald-950/80 hover:bg-emerald-900 active:scale-95 border border-emerald-500/40 disabled:opacity-40 text-white rounded-lg transition flex flex-col items-center justify-center text-[9px] sm:text-[10px] relative overflow-hidden touch-manipulation cursor-pointer"
               >
-                <div className="flex items-center gap-1 font-bold text-cyan-300">
-                  <Activity className="w-3 h-3" />
-                  <span>CRONO</span>
+                <div className="flex items-center gap-0.5 sm:gap-1 font-bold text-emerald-300">
+                  <Activity className="w-2.5 sm:w-3 h-2.5 sm:h-3" />
+                  <span>ESCUDO</span>
                 </div>
-                <span className="text-[9px] text-cyan-400">40 Foco</span>
+                <span className="text-[8px] sm:text-[9px] text-emerald-400">40 Foco</span>
                 {cronoCooldown > 0 && (
-                  <span className="absolute inset-0 bg-slate-950/90 flex items-center justify-center text-[9px] text-cyan-300 font-bold">
+                  <span className="absolute inset-0 bg-slate-950/90 flex items-center justify-center text-[9px] text-emerald-300 font-bold">
                     ({cronoCooldown}T)
                   </span>
                 )}
               </button>
 
-              {/* Skill 3 */}
+              {/* Skill 3: Displacement Pulse */}
               <button
-                disabled={isEnemyTurn || pulseCooldown > 0 || focus < 50}
-                onClick={handlePulseRupture}
-                className="py-1.5 px-2 bg-purple-950/80 hover:bg-purple-900 border border-purple-500/40 disabled:opacity-40 text-white rounded-lg transition flex flex-col items-center justify-center text-[10px] relative overflow-hidden"
+                disabled={isEnemyTurn || focus < 50 || pulseCooldown > 0}
+                onClick={handleDisplacementPulse}
+                className="min-h-[42px] py-1.5 px-1.5 sm:px-2 bg-purple-950/80 hover:bg-purple-900 active:scale-95 border border-purple-500/40 disabled:opacity-40 text-white rounded-lg transition flex flex-col items-center justify-center text-[9px] sm:text-[10px] relative overflow-hidden touch-manipulation cursor-pointer"
               >
-                <div className="flex items-center gap-1 font-bold text-purple-300">
-                  <Sparkles className="w-3 h-3" />
+                <div className="flex items-center gap-0.5 sm:gap-1 font-bold text-purple-300">
+                  <Sparkles className="w-2.5 sm:w-3 h-2.5 sm:h-3" />
                   <span>PULSO</span>
                 </div>
-                <span className="text-[9px] text-purple-400">50 Foco</span>
+                <span className="text-[8px] sm:text-[9px] text-purple-400">50 Foco</span>
                 {pulseCooldown > 0 && (
                   <span className="absolute inset-0 bg-slate-950/90 flex items-center justify-center text-[9px] text-purple-300 font-bold">
                     ({pulseCooldown}T)
@@ -855,29 +944,56 @@ export const CombatScene: React.FC<{
               <button
                 disabled={isEnemyTurn || focus < 100}
                 onClick={handleOverdrive}
-                className={`py-1.5 px-2 border rounded-lg transition flex flex-col items-center justify-center text-[10px] relative overflow-hidden ${
+                className={`min-h-[42px] py-1.5 px-1.5 sm:px-2 border rounded-lg transition flex flex-col items-center justify-center text-[9px] sm:text-[10px] relative overflow-hidden touch-manipulation cursor-pointer active:scale-95 ${
                   focus >= 100
                     ? 'bg-gradient-to-r from-rose-600 via-fuchsia-600 to-amber-500 border-amber-400 text-white font-black animate-pulse shadow-lg shadow-fuchsia-500/40'
                     : 'bg-slate-950 border-slate-800 text-slate-500 opacity-50'
                 }`}
               >
-                <div className="flex items-center gap-1">
-                  <Sparkles className="w-3 h-3" />
+                <div className="flex items-center gap-0.5 sm:gap-1">
+                  <Sparkles className="w-2.5 sm:w-3 h-2.5 sm:h-3" />
                   <span>OVERDRIVE</span>
                 </div>
-                <span className="text-[9px]">100% FOCO</span>
+                <span className="text-[8px] sm:text-[9px]">100% FOCO</span>
+              </button>
+            </div>
+
+            {/* Companion Support Protocol Banner */}
+            <div className="flex items-center justify-between p-1.5 sm:p-2 bg-slate-900/90 rounded-xl border border-emerald-500/30 text-[10px] sm:text-xs">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+                <span className="text-slate-400">SUPORTE ALIADO:</span>
+                <button
+                  onClick={() => setSelectedCompanion(selectedCompanion === 'LYRA' ? 'MARCUS' : 'LYRA')}
+                  className="font-bold text-emerald-300 hover:text-white transition underline cursor-pointer"
+                  title="Clique para alternar aliado de suporte"
+                >
+                  {selectedCompanion === 'LYRA' ? 'LYRA (+45 HP)' : 'MARCUS (+40% STAGGER)'}
+                </button>
+              </div>
+              <button
+                disabled={isEnemyTurn || companionCooldown > 0}
+                onClick={handleCompanionSupport}
+                className={`px-2.5 py-1 rounded-lg font-bold uppercase transition flex items-center gap-1 ${
+                  companionCooldown === 0
+                    ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/30 cursor-pointer active:scale-95'
+                    : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
+                }`}
+              >
+                <span>CHAMAR SUPORTE</span>
+                {companionCooldown > 0 && <span>({companionCooldown}T)</span>}
               </button>
             </div>
           </div>
 
           {/* Combat Log */}
-          <div className="md:col-span-4 bg-slate-950/90 border border-slate-800 p-2.5 rounded-xl h-36 md:h-auto overflow-y-auto text-[11px] text-slate-300 space-y-1">
-            <div className="text-[10px] text-cyan-400 font-bold border-b border-slate-800 pb-1 flex items-center justify-between">
-              <span>LOG TÁTICO RUPTURA 2.0</span>
-              <span className="text-[9px] text-slate-500">TURNO {turn}</span>
+          <div className="md:col-span-4 bg-slate-950/90 border border-slate-800 p-2 sm:p-2.5 rounded-xl h-24 sm:h-28 md:h-auto overflow-y-auto text-[10px] sm:text-[11px] text-slate-300 space-y-1">
+            <div className="text-[9px] sm:text-[10px] text-cyan-400 font-bold border-b border-slate-800 pb-1 flex items-center justify-between">
+              <span>LOG TÁTICO</span>
+              <span className="text-[8px] sm:text-[9px] text-slate-500">TURNO {turn}</span>
             </div>
             {combatLog.map((log, idx) => (
-              <p key={idx} className={idx === 0 ? 'text-cyan-300 font-semibold leading-tight' : 'opacity-70 leading-tight text-[10px]'}>
+              <p key={idx} className={idx === 0 ? 'text-cyan-300 font-semibold leading-tight' : 'opacity-70 leading-tight text-[9px] sm:text-[10px]'}>
                 &gt; {log}
               </p>
             ))}

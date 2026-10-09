@@ -15,10 +15,12 @@ import { InventoryScene } from './scenes/InventoryScene';
 import { SkillTreeScene } from './scenes/SkillTreeScene';
 import { QuestLogScene } from './scenes/QuestLogScene';
 import { SecretBossesScene } from './scenes/SecretBossesScene';
+import { RiftCoopScene } from './scenes/RiftCoopScene';
 import { PlayerState, EnemyState, RealmData, SecretBossConfig } from './types/game';
 import { audio } from './systems/AudioEngine';
 import { SaveEngine } from './systems/SaveEngine';
 import { StatCalculator } from './systems/StatCalculator';
+import { TacticalChoice } from './components/BossConfrontationModal';
 
 const INITIAL_PLAYER: PlayerState = {
   name: 'KAEL',
@@ -81,7 +83,8 @@ type Scene =
   | 'INVENTORY'
   | 'SKILLS'
   | 'QUESTS'
-  | 'SECRET_BOSSES';
+  | 'SECRET_BOSSES'
+  | 'RIFT_COOP';
 
 const initialEnemy = (phase: CampaignPhase): EnemyState => ({
   name: phase.enemy.toUpperCase(),
@@ -104,6 +107,7 @@ export default function App() {
   const [enemy, setEnemy] = useState<EnemyState>(initialEnemy(CAMPAIGN_PHASES[0]));
   const [lastPhaseId, setLastPhaseId] = useState('fase-01');
   const [activeSecretBoss, setActiveSecretBoss] = useState<SecretBossConfig | null>(null);
+  const [activeTacticalChoice, setActiveTacticalChoice] = useState<TacticalChoice | null>(null);
 
   // Load save on mount with transparent v1 migration
   useEffect(() => {
@@ -240,9 +244,10 @@ export default function App() {
   };
 
   // Secret Boss Combat Launcher
-  const handleStartSecretBossCombat = (boss: SecretBossConfig) => {
+  const handleStartSecretBossCombat = (boss: SecretBossConfig, choice?: TacticalChoice) => {
     audio.playBossPhase();
     setActiveSecretBoss(boss);
+    setActiveTacticalChoice(choice ?? null);
     const bossEnemy: EnemyState = {
       name: boss.name.toUpperCase(),
       hp: boss.enemyStats.hp,
@@ -260,8 +265,9 @@ export default function App() {
   };
 
   // Start Combat from Briefing
-  const startCombat = () => {
+  const startCombat = (choice?: TacticalChoice) => {
     setActiveSecretBoss(null);
+    setActiveTacticalChoice(choice ?? null);
     setEnemy(initialEnemy(phase));
     const calculated = StatCalculator.calculate(player);
     setPlayer(p => ({ ...p, hp: calculated.maxHp }));
@@ -440,21 +446,21 @@ export default function App() {
 
       {/* 4. PHASE BRIEFING */}
       {scene === 'BRIEFING' && (
-        <div className="relative flex-1 flex items-center justify-center p-4 overflow-auto font-mono">
+        <div className="relative flex-1 flex items-center justify-center p-3 sm:p-4 overflow-y-auto font-mono">
           <div className="absolute inset-0 opacity-70">
             <div className="w-full h-full bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-cyan-950 via-slate-950 to-black" />
           </div>
-          <div className="relative z-10 max-w-xl w-full border border-cyan-500/40 bg-slate-900/95 rounded-2xl p-6 md:p-8 space-y-5 shadow-2xl backdrop-blur-xl">
+          <div className="relative z-10 max-w-xl w-full border border-cyan-500/40 bg-slate-900/95 rounded-2xl p-5 sm:p-7 space-y-4 shadow-2xl backdrop-blur-xl my-auto">
             <div className="flex items-center justify-between">
               <button
                 onClick={() => setScene('MAP')}
-                className="text-xs text-slate-400 flex items-center gap-1.5 hover:text-white transition"
+                className="text-xs text-slate-400 flex items-center gap-1.5 hover:text-white transition touch-manipulation cursor-pointer"
               >
                 <ArrowLeft size={15} /> VOLTAR AO MAPA
               </button>
               <button
                 onClick={() => setScene('NEXUS')}
-                className="text-xs text-cyan-400 flex items-center gap-1.5 hover:text-cyan-200 transition"
+                className="text-xs text-cyan-400 flex items-center gap-1.5 hover:text-cyan-200 transition touch-manipulation cursor-pointer"
               >
                 <Orbit size={15} /> NEXUS
               </button>
@@ -469,27 +475,100 @@ export default function App() {
               <p className="text-[10px] text-cyan-500 tracking-[.3em]">
                 MISSÃO {phase.id.replace('fase-', '').toUpperCase()}
               </p>
-              <h1 className="text-2xl md:text-3xl font-black mt-1 text-white">{phase.title}</h1>
+              <h1 className="text-xl sm:text-2xl md:text-3xl font-black mt-1 text-white">{phase.title}</h1>
             </div>
 
-            <p className="text-slate-300 text-sm leading-relaxed">{phase.summary}</p>
+            <p className="text-slate-300 text-xs sm:text-sm leading-relaxed">{phase.summary}</p>
 
-            <div className="rounded-xl border border-rose-500/30 bg-rose-950/30 p-4">
+            {/* Tactical Directives from Lyra */}
+            <div className="p-3 bg-slate-950/80 border border-cyan-500/30 rounded-xl space-y-2">
+              <div className="flex items-center justify-between text-[11px] text-cyan-300 font-bold">
+                <span>DIRETRIZ TÁTICA DE LYRA:</span>
+                <span className="text-[10px] text-slate-400">SELECIONE UMA VANTAGEM</span>
+              </div>
+              <div className="grid grid-cols-3 gap-1.5 sm:gap-2 text-[10px]">
+                <button
+                  onClick={() => {
+                    audio.playClick();
+                    setActiveTacticalChoice({
+                      id: 'dir-dodge',
+                      label: 'Varredura de Fase',
+                      flavorText: 'Calibra sensores de esquiva rápida',
+                      buffName: '+15% Esquiva Perfeita',
+                      effectType: 'BONUS_DODGE',
+                      effectValue: 0.15,
+                    });
+                  }}
+                  className={`p-2 rounded-lg border text-left transition flex flex-col justify-between touch-manipulation cursor-pointer ${
+                    activeTacticalChoice?.id === 'dir-dodge'
+                      ? 'border-cyan-400 bg-cyan-950 text-cyan-200 font-bold'
+                      : 'border-slate-800 bg-slate-900 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="font-bold">ESQUIVA</span>
+                  <span className="text-[9px] text-cyan-400 mt-1">+15% Evasão</span>
+                </button>
+                <button
+                  onClick={() => {
+                    audio.playClick();
+                    setActiveTacticalChoice({
+                      id: 'dir-dmg',
+                      label: 'Pulso de Carga',
+                      flavorText: 'Dispara onda de choque antes do combate',
+                      buffName: '-35 HP Inicial no Inimigo',
+                      effectType: 'INITIAL_DAMAGE',
+                      effectValue: 35,
+                    });
+                  }}
+                  className={`p-2 rounded-lg border text-left transition flex flex-col justify-between touch-manipulation cursor-pointer ${
+                    activeTacticalChoice?.id === 'dir-dmg'
+                      ? 'border-amber-400 bg-amber-950 text-amber-200 font-bold'
+                      : 'border-slate-800 bg-slate-900 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="font-bold">IMPACTO</span>
+                  <span className="text-[9px] text-amber-400 mt-1">Dano Inicial</span>
+                </button>
+                <button
+                  onClick={() => {
+                    audio.playClick();
+                    setActiveTacticalChoice({
+                      id: 'dir-def',
+                      label: 'Reforço de Liga',
+                      flavorText: 'Endurece blindagem nanotubular',
+                      buffName: '+10 Defesa no Combate',
+                      effectType: 'BONUS_DEF',
+                      effectValue: 10,
+                    });
+                  }}
+                  className={`p-2 rounded-lg border text-left transition flex flex-col justify-between touch-manipulation cursor-pointer ${
+                    activeTacticalChoice?.id === 'dir-def'
+                      ? 'border-blue-400 bg-blue-950 text-blue-200 font-bold'
+                      : 'border-slate-800 bg-slate-900 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="font-bold">BLINDAGEM</span>
+                  <span className="text-[9px] text-blue-400 mt-1">+10 Defesa</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-rose-500/30 bg-rose-950/30 p-3 sm:p-4">
               <div className="flex items-center gap-2 text-rose-300 font-bold text-xs">
                 <AlertTriangle size={17} /> AMEAÇA DETECTADA
               </div>
-              <p className="mt-2 text-sm font-bold text-white">{phase.enemy}</p>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="mt-1 text-sm font-bold text-white">{phase.enemy}</p>
+              <p className="text-xs text-slate-400 mt-0.5">
                 HP {phase.hp} • ATK {phase.atk} • DEF {phase.def}
                 {phase.boss ? ' • [ENTIDADE CHEFE]' : ''}
               </p>
             </div>
 
             <button
-              onClick={startCombat}
-              className="w-full py-3.5 rounded-xl bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 font-bold tracking-widest uppercase flex items-center justify-center gap-2 text-white shadow-lg shadow-cyan-600/30 transition text-sm"
+              onClick={() => startCombat(activeTacticalChoice ?? undefined)}
+              className="w-full min-h-[46px] py-3 rounded-xl bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 font-bold tracking-widest uppercase flex items-center justify-center gap-2 text-white shadow-lg shadow-cyan-600/30 transition text-xs sm:text-sm touch-manipulation cursor-pointer"
             >
-              <Crosshair size={18} /> INICIAR COMBATE RUPTURA 3.0
+              <Crosshair size={18} /> INICIAR COMBATE RUPTURA 4.0
             </button>
           </div>
         </div>
@@ -505,6 +584,16 @@ export default function App() {
           onVictory={handleVictory}
           onDefeat={() => setScene('DEFEAT')}
           onNexusClick={() => setScene('NEXUS')}
+          tacticalChoice={activeTacticalChoice ?? undefined}
+          realm={
+            activeSecretBoss
+              ? activeSecretBoss.realmId
+              : phase.id.startsWith('fase-06') || phase.id.startsWith('fase-07') || phase.id.startsWith('fase-08')
+              ? 'realm-beta'
+              : phase.id.startsWith('fase-09') || phase.id.startsWith('fase-10')
+              ? 'realm-gamma'
+              : 'realm-alpha'
+          }
         />
       )}
 
@@ -542,6 +631,7 @@ export default function App() {
           onOpenSkillTree={() => setScene('SKILLS')}
           onOpenQuestLog={() => setScene('QUESTS')}
           onOpenSecretBosses={() => setScene('SECRET_BOSSES')}
+          onOpenRiftCoop={() => setScene('RIFT_COOP')}
           onMenuClick={() => setScene('MENU')}
           onSaveGame={() =>
             SaveEngine.save(player, 'NEXUS_HUB', unlockedPhases, completedPhases, {
@@ -627,6 +717,15 @@ export default function App() {
           player={player}
           completedPhases={completedPhases}
           onStartSecretBossCombat={handleStartSecretBossCombat}
+          onBackToNexus={() => setScene('NEXUS')}
+        />
+      )}
+
+      {/* 17. RIFT CO-OP MULTIPLAYER (RUPTURA 5.0) */}
+      {scene === 'RIFT_COOP' && (
+        <RiftCoopScene
+          player={player}
+          setPlayer={setPlayer}
           onBackToNexus={() => setScene('NEXUS')}
         />
       )}

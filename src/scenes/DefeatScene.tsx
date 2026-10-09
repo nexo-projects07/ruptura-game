@@ -19,7 +19,7 @@ export const DefeatScene: React.FC<DefeatSceneProps> = ({ onRetry, onReturnToMap
         </div>
 
         <div>
-          <span className="text-[10px] font-mono tracking-widest text-rose-400 uppercase">RUPTURA // COLAPSO</span>
+          <span className="text-[10px] font-mono tracking-widest text-rose-400 uppercase">RUPTURA 5.0 · COLAPSO DE FASE</span>
           <h2 className="text-3xl md:text-4xl font-black text-rose-500 tracking-wider mt-1">DERROTA</h2>
           <p className="text-xs font-mono text-slate-400 mt-1 uppercase font-semibold">
             SISTEMAS DO EXPLORADOR COLAPSARAM

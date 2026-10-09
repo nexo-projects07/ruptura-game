@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   ArrowLeft,
   Skull,
@@ -8,7 +8,8 @@ import {
   AlertTriangle,
   Award,
   Sparkles,
-  Radio
+  Radio,
+  Swords
 } from 'lucide-react';
 import { AtmosphericCanvas } from '../components/AtmosphericCanvas';
 import { ProgressionHUD } from '../components/ProgressionHUD';
@@ -16,11 +17,12 @@ import { PlayerState, SecretBossConfig } from '../types/game';
 import { SecretBossSystem } from '../systems/SecretBossSystem';
 import { ItemRegistry } from '../systems/ItemRegistry';
 import { audio } from '../systems/AudioEngine';
+import { BossConfrontationModal, TacticalChoice } from '../components/BossConfrontationModal';
 
 interface SecretBossesSceneProps {
   player: PlayerState;
   completedPhases: string[];
-  onStartSecretBossCombat: (boss: SecretBossConfig) => void;
+  onStartSecretBossCombat: (boss: SecretBossConfig, choice?: TacticalChoice) => void;
   onBackToNexus: () => void;
 }
 
@@ -30,6 +32,8 @@ export const SecretBossesScene: React.FC<SecretBossesSceneProps> = ({
   onStartSecretBossCombat,
   onBackToNexus,
 }) => {
+  const [confrontationBoss, setConfrontationBoss] = useState<SecretBossConfig | null>(null);
+
   const discoveredSecretsCount = player.discoveredSecrets?.length ?? 0;
   const defeatedBosses = player.defeatedSecretBosses ?? [];
 
@@ -41,28 +45,28 @@ export const SecretBossesScene: React.FC<SecretBossesSceneProps> = ({
   );
 
   return (
-    <div className="relative flex-1 min-h-0 flex flex-col justify-between overflow-y-auto bg-slate-950 p-4 md:p-6 text-slate-100 font-mono">
-      <AtmosphericCanvas />
+    <div className="relative flex-1 min-h-0 flex flex-col justify-between overflow-y-auto bg-slate-950 text-slate-100 font-mono">
+      <AtmosphericCanvas realm="realm-gamma" />
       <ProgressionHUD player={player} onNexusClick={onBackToNexus} />
 
-      <div className="relative z-10 max-w-5xl mx-auto w-full my-auto space-y-6 py-4">
+      <div className="relative z-10 max-w-5xl mx-auto w-full my-auto space-y-4 sm:space-y-6 p-3 sm:p-4 md:p-6">
         {/* Header */}
-        <div className="flex items-center justify-between gap-3 border-b border-cyan-500/30 pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 border-b border-cyan-500/30 pb-3">
           <button
             onClick={onBackToNexus}
-            className="px-3 py-1.5 rounded-lg border border-slate-700 hover:border-cyan-400 text-slate-300 hover:text-white flex items-center gap-2 text-xs transition"
+            className="min-h-[38px] px-3 py-1.5 rounded-lg border border-slate-700 hover:border-cyan-400 active:scale-95 text-slate-300 hover:text-white flex items-center gap-1.5 sm:gap-2 text-xs transition touch-manipulation cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>VOLTAR AO NEXUS</span>
           </button>
           <div className="flex items-center gap-2 text-xs text-rose-400">
             <Skull className="w-4 h-4 text-rose-500 animate-pulse" />
-            <span className="tracking-widest">CÂMARA DE CHEFES SECRETOS DA FENDA</span>
+            <span className="tracking-widest text-[11px] sm:text-xs">CHEFES SECRETOS MULTIVERSAIS</span>
           </div>
         </div>
 
         {/* Overview Banner */}
-        <div className="bg-slate-900/80 border border-rose-500/40 p-5 rounded-2xl backdrop-blur-md">
+        <div className="bg-slate-900/80 border border-rose-500/40 p-4 sm:p-5 rounded-2xl backdrop-blur-md">
           <div className="flex items-center gap-2 text-rose-400 text-xs font-bold mb-1">
             <AlertTriangle className="w-4 h-4" />
             <span>AMEAÇAS CLASSIFICADAS DE NÍVEL APOCALÍPTICO</span>
@@ -71,7 +75,7 @@ export const SecretBossesScene: React.FC<SecretBossesSceneProps> = ({
             ENTIDADES PRIMORDIAIS DA CONVERGÊNCIA
           </h2>
           <p className="text-xs text-slate-300 mt-1 leading-relaxed">
-            Ecos ancestrais que não foram contidos durante a criação do Nexus. Cada confronto possui múltiplas fases e concede recompensas de equipamentos lendários.
+            Ecos ancestrais com modelos visuais, padrões de combate e arenas próprias. Cada confronto apresenta diálogo antes do combate com escolhas táticas que conferem vantagens reais na batalha.
           </p>
         </div>
 
@@ -85,7 +89,7 @@ export const SecretBossesScene: React.FC<SecretBossesSceneProps> = ({
             return (
               <div
                 key={boss.id}
-                className={`p-5 rounded-2xl border transition flex flex-col justify-between min-h-[300px] ${
+                className={`p-4 sm:p-5 rounded-2xl border transition flex flex-col justify-between min-h-[320px] ${
                   isDefeated
                     ? 'border-emerald-500/50 bg-emerald-950/20 shadow-md'
                     : isUnlocked
@@ -104,7 +108,7 @@ export const SecretBossesScene: React.FC<SecretBossesSceneProps> = ({
                       </span>
                     ) : isUnlocked ? (
                       <span className="text-[10px] text-rose-400 font-bold animate-pulse">
-                        ⚠️ DISPONÍVEL
+                        ⚠️ DESPERTO
                       </span>
                     ) : (
                       <span className="text-[10px] text-slate-500 flex items-center gap-1">
@@ -149,17 +153,17 @@ export const SecretBossesScene: React.FC<SecretBossesSceneProps> = ({
                   {isUnlocked || isDefeated ? (
                     <button
                       onClick={() => {
-                        audio.playBossPhase();
-                        onStartSecretBossCombat(boss);
+                        audio.playClick();
+                        setConfrontationBoss(boss);
                       }}
-                      className={`w-full py-3 rounded-xl font-bold uppercase tracking-wider text-xs transition flex items-center justify-center gap-2 ${
+                      className={`w-full min-h-[44px] py-2.5 rounded-xl font-bold uppercase tracking-wider text-xs transition flex items-center justify-center gap-2 touch-manipulation cursor-pointer ${
                         isDefeated
-                          ? 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                          ? 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
                           : 'bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white shadow-lg shadow-rose-600/30'
                       }`}
                     >
-                      <Play className="w-4 h-4 fill-current" />
-                      <span>{isDefeated ? 'REPETIR CONFRONTO' : 'ENFRENTAR CHEFE'}</span>
+                      <Swords className="w-4 h-4" />
+                      <span>{isDefeated ? 'RECONFRONTAR' : 'CONFRONTAR CHEFE'}</span>
                     </button>
                   ) : (
                     <div className="text-center text-xs text-slate-600 py-2">
@@ -172,6 +176,20 @@ export const SecretBossesScene: React.FC<SecretBossesSceneProps> = ({
           })}
         </div>
       </div>
+
+      {/* Boss Confrontation Modal with Strategic Narrative Choices */}
+      {confrontationBoss && (
+        <BossConfrontationModal
+          boss={confrontationBoss}
+          player={player}
+          onConfirmBattle={(choice) => {
+            const b = confrontationBoss;
+            setConfrontationBoss(null);
+            onStartSecretBossCombat(b, choice);
+          }}
+          onCancel={() => setConfrontationBoss(null)}
+        />
+      )}
     </div>
   );
 };

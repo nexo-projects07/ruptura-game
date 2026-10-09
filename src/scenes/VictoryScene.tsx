@@ -33,7 +33,7 @@ export const VictoryScene: React.FC<VictorySceneProps> = ({
         </div>
 
         <div>
-          <span className="text-[10px] font-mono tracking-widest text-emerald-400 uppercase">RUPTURA 2.0 // VITÓRIA</span>
+          <span className="text-[10px] font-mono tracking-widest text-emerald-400 uppercase">RUPTURA 5.0 · VITÓRIA TÁTICA</span>
           <h2 className="text-3xl md:text-4xl font-black text-emerald-300 tracking-wider mt-1">VITÓRIA!</h2>
           <p className="text-xs font-mono text-slate-300 mt-1 uppercase font-semibold">
             {enemyName} NEUTRALIZADO COM SUCESSO

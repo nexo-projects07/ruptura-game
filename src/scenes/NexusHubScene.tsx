@@ -18,7 +18,9 @@ import {
   BookOpen,
   Skull,
   Download,
-  Upload
+  Upload,
+  Users,
+  Wifi
 } from 'lucide-react';
 import { AtmosphericCanvas } from '../components/AtmosphericCanvas';
 import { ProgressionHUD } from '../components/ProgressionHUD';
@@ -39,6 +41,7 @@ interface NexusHubSceneProps {
   onOpenSkillTree: () => void;
   onOpenQuestLog: () => void;
   onOpenSecretBosses: () => void;
+  onOpenRiftCoop: () => void;
   onMenuClick: () => void;
   onSaveGame: () => void;
 }
@@ -56,12 +59,20 @@ export const NexusHubScene: React.FC<NexusHubSceneProps> = ({
   onOpenSkillTree,
   onOpenQuestLog,
   onOpenSecretBosses,
+  onOpenRiftCoop,
   onMenuClick,
   onSaveGame,
 }) => {
   const [saveToast, setSaveToast] = useState<string | null>(null);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [importText, setImportText] = useState('');
+
+  React.useEffect(() => {
+    audio.playBGM('NEXUS');
+    return () => {
+      audio.stopBGM();
+    };
+  }, []);
 
   const handleManualSave = () => {
     audio.playClick();
@@ -83,7 +94,7 @@ export const NexusHubScene: React.FC<NexusHubSceneProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `ruptura_3.0_save_${Date.now()}.json`;
+    a.download = `ruptura_5.0_save_${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
 
@@ -110,7 +121,7 @@ export const NexusHubScene: React.FC<NexusHubSceneProps> = ({
   const progressPercent = Math.min(100, Math.round((completedCount / 10) * 100));
 
   return (
-    <div className="relative flex-1 min-h-0 flex flex-col justify-between overflow-y-auto bg-slate-950 p-4 md:p-6 text-slate-100 font-mono">
+    <div className="relative flex-1 min-h-0 flex flex-col justify-between overflow-y-auto bg-slate-950 text-slate-100 font-mono">
       <AtmosphericCanvas />
       <ProgressionHUD
         player={player}
@@ -120,53 +131,55 @@ export const NexusHubScene: React.FC<NexusHubSceneProps> = ({
         onQuestLogClick={onOpenQuestLog}
       />
 
-      <div className="relative z-10 max-w-6xl mx-auto w-full my-auto space-y-6 py-4">
+      <div className="relative z-10 max-w-6xl mx-auto w-full my-auto space-y-4 sm:space-y-6 p-3 sm:p-4 md:p-6">
         {/* Header Banner */}
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-cyan-500/30 pb-4">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-cyan-950/80 border border-cyan-400/50 rounded-xl shadow-lg shadow-cyan-500/20">
-              <Orbit className="w-8 h-8 text-cyan-300 animate-spin" />
+        <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4 border-b border-cyan-500/30 pb-3 sm:pb-4">
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="p-2 sm:p-3 bg-cyan-950/80 border border-cyan-400/50 rounded-xl shadow-lg shadow-cyan-500/20">
+              <Orbit className="w-6 sm:w-8 h-6 sm:h-8 text-cyan-300 animate-spin" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] bg-cyan-500/20 text-cyan-300 px-2.5 py-0.5 rounded-full border border-cyan-500/40 uppercase font-bold">
-                  ESTAÇÃO DE COMANDO MULTIVERSAL
-                </span>
-                <span className="text-xs text-fuchsia-400 font-bold">RUPTURA 3.0</span>
+              <div className="flex items-center gap-2 text-[10px] sm:text-xs font-mono">
+                <span className="text-cyan-300 font-bold uppercase tracking-wider">ESTAÇÃO DE COMANDO</span>
+                <span aria-hidden="true" className="text-slate-600">·</span>
+                <span className="text-fuchsia-400 font-bold">RUPTURA 5.0 ULTIMATE</span>
               </div>
-              <h1 className="text-2xl md:text-4xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-indigo-200 to-fuchsia-400 mt-1">
+              <h1 className="text-xl sm:text-2xl md:text-4xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-indigo-200 to-fuchsia-400 mt-0.5 sm:mt-1">
                 HUB CENTRAL NEXUS
               </h1>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
             <button
               onClick={handleManualSave}
-              className="px-3.5 py-2 rounded-xl bg-slate-900 border border-cyan-500/40 hover:border-cyan-300 text-cyan-300 hover:text-white flex items-center gap-1.5 text-xs transition shadow-md"
+              className="min-h-[38px] px-3 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-slate-900 border border-cyan-500/40 hover:border-cyan-300 active:scale-95 text-cyan-300 hover:text-white flex items-center gap-1.5 text-xs transition shadow-md touch-manipulation cursor-pointer"
             >
               <Save className="w-4 h-4 text-cyan-400" />
               <span>SALVAR</span>
             </button>
             <button
               onClick={handleExport}
-              className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 hover:border-indigo-400 text-slate-300 hover:text-white flex items-center gap-1.5 text-xs transition"
+              className="min-h-[38px] px-3 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-slate-900 border border-slate-700 hover:border-indigo-400 active:scale-95 text-slate-300 hover:text-white flex items-center gap-1.5 text-xs transition touch-manipulation cursor-pointer"
               title="Exportar Save como arquivo JSON"
             >
               <Download className="w-4 h-4 text-indigo-400" />
-              <span>EXPORTAR</span>
+              <span className="hidden sm:inline">EXPORTAR</span>
             </button>
             <button
               onClick={() => setImportModalOpen(true)}
-              className="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 hover:border-emerald-400 text-slate-300 hover:text-white flex items-center gap-1.5 text-xs transition"
+              className="min-h-[38px] px-3 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-slate-900 border border-slate-700 hover:border-emerald-400 active:scale-95 text-slate-300 hover:text-white flex items-center gap-1.5 text-xs transition touch-manipulation cursor-pointer"
               title="Importar Save a partir de JSON"
             >
               <Upload className="w-4 h-4 text-emerald-400" />
-              <span>IMPORTAR</span>
+              <span className="hidden sm:inline">IMPORTAR</span>
             </button>
             <button
-              onClick={onMenuClick}
-              className="px-3 py-2 rounded-xl border border-slate-700 text-slate-400 hover:text-white flex items-center gap-1.5 text-xs transition"
+              onClick={() => {
+                audio.playClick();
+                onMenuClick();
+              }}
+              className="min-h-[38px] px-3 sm:px-3.5 py-1.5 sm:py-2 rounded-xl bg-slate-900 border border-slate-700 hover:border-cyan-500 active:scale-95 text-slate-300 hover:text-cyan-300 flex items-center gap-1.5 text-xs transition touch-manipulation cursor-pointer"
             >
               <ArrowLeft className="w-4 h-4" />
               <span>MENU</span>
@@ -221,7 +234,7 @@ export const NexusHubScene: React.FC<NexusHubSceneProps> = ({
                 <span className="p-2.5 bg-cyan-950 border border-cyan-500/40 rounded-xl text-cyan-400 group-hover:scale-110 transition">
                   <Sword className="w-5 h-5" />
                 </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-bold">
+                <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider">
                   4 SLOTS ATIVOS
                 </span>
               </div>
@@ -251,7 +264,7 @@ export const NexusHubScene: React.FC<NexusHubSceneProps> = ({
                 <span className="p-2.5 bg-fuchsia-950 border border-fuchsia-500/40 rounded-xl text-fuchsia-400 group-hover:scale-110 transition">
                   <Zap className="w-5 h-5" />
                 </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30 font-bold">
+                <span className="text-[10px] text-fuchsia-400 font-bold uppercase tracking-wider">
                   4 ESPECIALIZAÇÕES
                 </span>
               </div>
@@ -281,8 +294,8 @@ export const NexusHubScene: React.FC<NexusHubSceneProps> = ({
                 <span className="p-2.5 bg-emerald-950 border border-emerald-500/40 rounded-xl text-emerald-400 group-hover:scale-110 transition">
                   <BookOpen className="w-5 h-5" />
                 </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-bold">
-                  OBJETIVOS
+                <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">
+                  OBJETIVOS ATIVOS
                 </span>
               </div>
               <h2 className="text-base font-bold text-white group-hover:text-emerald-300 transition">
@@ -311,7 +324,7 @@ export const NexusHubScene: React.FC<NexusHubSceneProps> = ({
                 <span className="p-2.5 bg-rose-950 border border-rose-500/40 rounded-xl text-rose-400 group-hover:scale-110 transition">
                   <Skull className="w-5 h-5" />
                 </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold">
+                <span className="text-[10px] text-rose-400 font-bold uppercase tracking-wider">
                   3 ENTIDADES
                 </span>
               </div>
@@ -324,6 +337,37 @@ export const NexusHubScene: React.FC<NexusHubSceneProps> = ({
             </div>
             <div className="flex items-center justify-between text-xs text-rose-400 font-bold pt-3 border-t border-slate-800">
               <span>Confrontos Especiais</span>
+              <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition" />
+            </div>
+          </button>
+
+          {/* Module: Fendas Sincronizadas / Co-op Multiplayer (RUPTURA 5.0) */}
+          <button
+            onClick={() => {
+              audio.playPortal();
+              onOpenRiftCoop();
+            }}
+            className="group p-5 rounded-2xl border border-cyan-400/60 bg-gradient-to-b from-cyan-950/40 to-slate-900/95 hover:bg-slate-850 hover:border-cyan-300 transition text-left flex flex-col justify-between min-h-[170px] shadow-xl shadow-cyan-950/50 relative overflow-hidden"
+          >
+            <div className="absolute top-0 right-0 w-28 h-28 bg-cyan-500/10 rounded-full blur-2xl pointer-events-none" />
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="p-2.5 bg-cyan-950 border border-cyan-400/50 rounded-xl text-cyan-300 group-hover:scale-110 transition">
+                  <Users className="w-5 h-5" />
+                </span>
+                <span className="text-[10px] text-cyan-300 font-bold flex items-center gap-1 uppercase tracking-wider">
+                  <Wifi className="w-3 h-3 text-emerald-400 animate-pulse" /> MULTIPLAYER 5.0
+                </span>
+              </div>
+              <h2 className="text-base font-bold text-white group-hover:text-cyan-300 transition">
+                FENDAS SINCRONIZADAS (CO-OP)
+              </h2>
+              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                Incursões em esquadrão com operadores (Kael, Lyra, Marcus, Kira), link de sala e Combo de Ressonância.
+              </p>
+            </div>
+            <div className="flex items-center justify-between text-xs text-cyan-300 font-bold pt-3 border-t border-slate-800">
+              <span>{player.coopRaidsCompleted ?? 0} Incursões Concluídas</span>
               <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition" />
             </div>
           </button>
@@ -341,7 +385,7 @@ export const NexusHubScene: React.FC<NexusHubSceneProps> = ({
                 <span className="p-2.5 bg-cyan-950 border border-cyan-500/40 rounded-xl text-cyan-400 group-hover:scale-110 transition">
                   <Map className="w-5 h-5" />
                 </span>
-                <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider">
                   10 FASES ORIGINAIS
                 </span>
               </div>
@@ -371,7 +415,7 @@ export const NexusHubScene: React.FC<NexusHubSceneProps> = ({
                 <span className="p-2.5 bg-fuchsia-950 border border-fuchsia-500/40 rounded-xl text-fuchsia-400 group-hover:scale-110 transition">
                   <Orbit className="w-5 h-5 animate-spin" />
                 </span>
-                <span className="text-[10px] px-2 py-0.5 rounded bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30">
+                <span className="text-[10px] text-fuchsia-400 font-bold uppercase tracking-wider">
                   5 REALIDADES
                 </span>
               </div>
@@ -401,7 +445,7 @@ export const NexusHubScene: React.FC<NexusHubSceneProps> = ({
                 <span className="p-2.5 bg-emerald-950 border border-emerald-500/40 rounded-xl text-emerald-400 group-hover:scale-110 transition">
                   <Compass className="w-5 h-5" />
                 </span>
-                <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">
                   RECONHECIMENTO
                 </span>
               </div>
@@ -431,7 +475,7 @@ export const NexusHubScene: React.FC<NexusHubSceneProps> = ({
                 <span className="p-2.5 bg-amber-950 border border-amber-500/40 rounded-xl text-amber-400 group-hover:scale-110 transition">
                   <Cpu className="w-5 h-5" />
                 </span>
-                <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">
                   LABORATÓRIO
                 </span>
               </div>
@@ -461,7 +505,7 @@ export const NexusHubScene: React.FC<NexusHubSceneProps> = ({
                 <span className="p-2.5 bg-blue-950 border border-blue-500/40 rounded-xl text-blue-400 group-hover:scale-110 transition">
                   <Database className="w-5 h-5" />
                 </span>
-                <span className="text-[10px] px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                <span className="text-[10px] text-blue-400 font-bold uppercase tracking-wider">
                   ARQUIVOS SECRETOS
                 </span>
               </div>

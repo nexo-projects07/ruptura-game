@@ -46,30 +46,30 @@ export const CampaignMapScene: React.FC<{
   onNexusClick,
   onUnlockAllDebug,
 }) => (
-  <div className="relative flex-1 min-h-0 overflow-y-auto bg-slate-950 p-4 md:p-8 font-mono">
+  <div className="relative flex-1 min-h-0 overflow-y-auto bg-slate-950 p-3 sm:p-4 md:p-8 font-mono">
     <AtmosphericCanvas />
-    <div className="relative z-10 max-w-5xl mx-auto space-y-6">
+    <div className="relative z-10 max-w-5xl mx-auto space-y-4 sm:space-y-6">
       {/* Navigation Bar */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
+      <div className="flex items-center justify-between gap-2.5 sm:gap-3 flex-wrap">
         <div className="flex items-center gap-2">
           <button
             onClick={onMenuClick}
-            className="px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:text-white flex items-center gap-2 text-xs transition"
+            className="min-h-[38px] px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:text-white active:scale-95 flex items-center gap-1.5 text-xs transition touch-manipulation cursor-pointer"
           >
             <ArrowLeft size={15} /> MENU
           </button>
           {onNexusClick && (
             <button
               onClick={onNexusClick}
-              className="px-3 py-1.5 rounded-lg border border-cyan-500/50 bg-cyan-950/60 hover:bg-cyan-900/80 text-cyan-300 hover:text-white flex items-center gap-1.5 text-xs transition font-bold shadow-md shadow-cyan-950/40"
+              className="min-h-[38px] px-3 py-1.5 rounded-lg border border-cyan-500/50 bg-cyan-950/60 hover:bg-cyan-900/80 active:scale-95 text-cyan-300 hover:text-white flex items-center gap-1.5 text-xs transition font-bold shadow-md shadow-cyan-950/40 touch-manipulation cursor-pointer"
             >
               <Orbit size={15} className="animate-spin text-cyan-400" />
               <span>NEXUS HUB</span>
             </button>
           )}
         </div>
-        <span className="text-xs tracking-[.25em] text-cyan-300 flex items-center gap-2">
-          <Radio size={15} /> CAMPANHA // 10 FASES INTEGRADAS
+        <span className="text-[11px] sm:text-xs tracking-wider sm:tracking-[.25em] text-cyan-300 flex items-center gap-1.5 sm:gap-2">
+          <Radio size={15} /> CAMPANHA // 10 FASES
         </span>
       </div>
 
@@ -77,12 +77,12 @@ export const CampaignMapScene: React.FC<{
 
       {/* Header */}
       <header className="text-center py-2">
-        <p className="text-cyan-400 text-xs tracking-[.35em]">2147 // NOVA ARCÁDIA</p>
-        <h1 className="text-3xl md:text-5xl font-black tracking-widest mt-2 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-white to-fuchsia-400">
-          RUPTURA 2.0
+        <p className="text-cyan-400 text-[10px] sm:text-xs tracking-[.35em]">2147 // NOVA ARCÁDIA</p>
+        <h1 className="text-2xl sm:text-3xl md:text-5xl font-black tracking-widest mt-1 sm:mt-2 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-white to-fuchsia-400">
+          RUPTURA 5.0
         </h1>
-        <p className="text-slate-400 text-sm mt-1">Capítulo I — A origem do colapso dimensional</p>
-        <div className="w-full max-w-sm mx-auto h-2 rounded-full bg-slate-800 mt-4 overflow-hidden border border-slate-700">
+        <p className="text-slate-400 text-xs sm:text-sm mt-1">Capítulo I — A origem do colapso dimensional</p>
+        <div className="w-full max-w-sm mx-auto h-2 rounded-full bg-slate-800 mt-3 sm:mt-4 overflow-hidden border border-slate-700">
           <div
             className="h-full bg-gradient-to-r from-cyan-500 via-indigo-500 to-fuchsia-500 transition-all duration-500"
             style={{ width: `${(completedPhases.length / 10) * 100}%` }}
@@ -95,7 +95,7 @@ export const CampaignMapScene: React.FC<{
           {onUnlockAllDebug && completedPhases.length < 10 && (
             <button
               onClick={onUnlockAllDebug}
-              className="text-[10px] text-cyan-400 hover:text-cyan-200 underline opacity-70 hover:opacity-100 transition"
+              className="text-[10px] text-cyan-400 hover:text-cyan-200 underline opacity-70 hover:opacity-100 transition touch-manipulation cursor-pointer"
               title="Desbloquear todas as 10 fases para testes imediatos"
             >
               [Desbloquear todas para teste]

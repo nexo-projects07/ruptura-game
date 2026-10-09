@@ -132,23 +132,23 @@ export const MultiverseMapScene: React.FC<MultiverseMapSceneProps> = ({
   const isCurrentUnlocked = checkUnlocked(selectedRealm.id);
 
   return (
-    <div className="relative flex-1 min-h-0 flex flex-col justify-between overflow-y-auto bg-slate-950 p-4 md:p-6 text-slate-100 font-mono">
+    <div className="relative flex-1 min-h-0 flex flex-col justify-between overflow-y-auto bg-slate-950 text-slate-100 font-mono">
       <AtmosphericCanvas />
       <ProgressionHUD player={player} onNexusClick={onBackToNexus} />
 
-      <div className="relative z-10 max-w-6xl mx-auto w-full my-auto space-y-6 py-4">
+      <div className="relative z-10 max-w-6xl mx-auto w-full my-auto space-y-4 sm:space-y-6 p-3 sm:p-4 md:p-6">
         {/* Top Header */}
-        <div className="flex items-center justify-between gap-3 border-b border-cyan-500/30 pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 border-b border-cyan-500/30 pb-3">
           <button
             onClick={onBackToNexus}
-            className="px-3 py-1.5 rounded-lg border border-slate-700 hover:border-cyan-400 text-slate-300 hover:text-white flex items-center gap-2 text-xs transition"
+            className="min-h-[38px] px-3 py-1.5 rounded-lg border border-slate-700 hover:border-cyan-400 active:scale-95 text-slate-300 hover:text-white flex items-center gap-1.5 sm:gap-2 text-xs transition touch-manipulation cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>VOLTAR AO NEXUS</span>
           </button>
           <div className="flex items-center gap-2 text-xs text-fuchsia-300">
             <Orbit className="w-4 h-4 animate-spin text-fuchsia-400" />
-            <span className="tracking-widest">MAPA INTERATIVO DE MULTIVERSOS</span>
+            <span className="tracking-widest text-[11px] sm:text-xs">MAPA DE MULTIVERSOS</span>
           </div>
         </div>
 
@@ -207,17 +207,10 @@ export const MultiverseMapScene: React.FC<MultiverseMapSceneProps> = ({
 
           <div className="relative z-10 grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
             <div className="md:col-span-8 space-y-4">
-              <div className="flex items-center gap-2">
-                <span className="text-xs bg-cyan-500/20 text-cyan-300 px-2.5 py-1 rounded-full border border-cyan-500/40 font-bold uppercase">
-                  {selectedRealm.code}
-                </span>
-                <span
-                  className={`text-xs px-2.5 py-1 rounded-full font-bold uppercase ${
-                    isCurrentUnlocked
-                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                      : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                  }`}
-                >
+              <div className="flex items-center gap-2 text-xs font-mono">
+                <span className="text-cyan-400 font-bold uppercase tracking-wider">{selectedRealm.code}</span>
+                <span aria-hidden="true" className="text-slate-600">·</span>
+                <span className={`font-bold uppercase tracking-wider ${isCurrentUnlocked ? 'text-emerald-400' : 'text-rose-400'}`}>
                   {isCurrentUnlocked ? 'PORTAL SINCRONIZADO' : 'PORTAL BLOQUEADO'}
                 </span>
               </div>

@@ -4,6 +4,9 @@
   .font-mono {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   }
+  .touch-manipulation {
+    touch-action: manipulation;
+  }
 }
 
 html, body, #root {
@@ -15,6 +18,8 @@ html, body, #root {
   background-color: #030712;
   color: #f3f4f6;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 * {

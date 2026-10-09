@@ -111,23 +111,23 @@ export const QuestLogScene: React.FC<QuestLogSceneProps> = ({
   };
 
   return (
-    <div className="relative flex-1 min-h-0 flex flex-col justify-between overflow-y-auto bg-slate-950 p-4 md:p-6 text-slate-100 font-mono">
+    <div className="relative flex-1 min-h-0 flex flex-col justify-between overflow-y-auto bg-slate-950 text-slate-100 font-mono">
       <AtmosphericCanvas />
       <ProgressionHUD player={player} onNexusClick={onBackToNexus} />
 
-      <div className="relative z-10 max-w-5xl mx-auto w-full my-auto space-y-6 py-4">
+      <div className="relative z-10 max-w-5xl mx-auto w-full my-auto space-y-4 sm:space-y-6 p-3 sm:p-4 md:p-6">
         {/* Header */}
-        <div className="flex items-center justify-between gap-3 border-b border-cyan-500/30 pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 border-b border-cyan-500/30 pb-3">
           <button
             onClick={onBackToNexus}
-            className="px-3 py-1.5 rounded-lg border border-slate-700 hover:border-cyan-400 text-slate-300 hover:text-white flex items-center gap-2 text-xs transition"
+            className="min-h-[38px] px-3 py-1.5 rounded-lg border border-slate-700 hover:border-cyan-400 active:scale-95 text-slate-300 hover:text-white flex items-center gap-1.5 sm:gap-2 text-xs transition touch-manipulation cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4" />
             <span>VOLTAR AO NEXUS</span>
           </button>
           <div className="flex items-center gap-2 text-xs text-emerald-300">
             <Compass className="w-4 h-4 text-emerald-400 animate-pulse" />
-            <span className="tracking-widest">DIÁRIO DE MISSÕES & OBJETIVOS</span>
+            <span className="tracking-widest text-[11px] sm:text-xs">DIÁRIO DE MISSÕES</span>
           </div>
         </div>
 

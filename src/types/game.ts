@@ -28,7 +28,42 @@ export type ScreenType =
   | 'INVENTORY'
   | 'SKILL_TREE'
   | 'QUEST_LOG'
-  | 'SECRET_BOSSES';
+  | 'SECRET_BOSSES'
+  // RUPTURA 5.0 Screens (Ultimate Expansion)
+  | 'RIFT_COOP';
+
+export type CompanionRole = 'LYRA_TACTICIAN' | 'MARCUS_JUGGERNAUT' | 'KIRA_VOID';
+
+export interface CoopSquadMember {
+  id: string;
+  name: string;
+  roleTitle: string;
+  role: CompanionRole | 'KAEL_VANGUARD';
+  level: number;
+  hp: number;
+  maxHp: number;
+  status: 'ONLINE' | 'ENGAGED' | 'SYNCED' | 'DOWN';
+  activeSkill: string;
+  avatarColor: string;
+  isLocalPlayer?: boolean;
+}
+
+export interface RiftRaidMission {
+  id: string;
+  title: string;
+  threatRank: 'ALTA' | 'EXTREMA' | 'SINGULARIDADE';
+  bossName: string;
+  bossHp: number;
+  bossAtk: number;
+  bossDef: number;
+  rewardCredits: number;
+  rewardFragments: number;
+  rewardMatrixCells: number;
+  rewardAetherCores: number;
+  realmId: string;
+  description: string;
+  mechanicWarning: string;
+}
 
 export type ItemRarity = 'COMMON' | 'RARE' | 'EPIC' | 'LEGENDARY';
 
@@ -190,6 +225,9 @@ export interface PlayerState {
   completedQuests?: string[];
   discoveredSecretBosses?: string[];
   defeatedSecretBosses?: string[];
+  // RUPTURA 5.0 Fields
+  activeCompanion?: CompanionRole;
+  coopRaidsCompleted?: number;
 }
 
 export interface EnemyIntent {
