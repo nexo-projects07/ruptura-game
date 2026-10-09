@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import {
   Users,
   Shield,
@@ -11,28 +11,29 @@ import {
   Sparkles,
   AlertTriangle,
   Award,
-  RefreshCw,
   MessageSquare,
-  Copy,
-  Check,
   ChevronRight,
-  Wifi,
   Skull
 } from 'lucide-react';
 import { AtmosphericCanvas } from '../components/AtmosphericCanvas';
 import { ProgressionHUD } from '../components/ProgressionHUD';
 import { PlayerState, CoopSquadMember, RiftRaidMission, CompanionRole } from '../types/game';
 import { audio } from '../systems/AudioEngine';
+import { grantRiftRaidReward, hasReceivedRiftRaidReward, isRiftRaidUnlocked } from '../systems/ProgressionRewardsSystem';
+import { StatCalculator } from '../systems/StatCalculator';
+import { calculateDamageAgainstDefense } from '../systems/DamageCalculator';
 
 interface RiftCoopSceneProps {
   player: PlayerState;
   setPlayer: React.Dispatch<React.SetStateAction<PlayerState>>;
+  completedPhases: string[];
   onBackToNexus: () => void;
 }
 
 const RAID_MISSIONS: RiftRaidMission[] = [
   {
     id: 'raid-01',
+    requiredPhase: 'fase-10',
     title: 'Assalto ao Leviatã de Matriz',
     threatRank: 'ALTA',
     bossName: 'LEVIATÃ DA MATRIZ ABISSAL',
@@ -49,6 +50,7 @@ const RAID_MISSIONS: RiftRaidMission[] = [
   },
   {
     id: 'raid-02',
+    requiredPhase: 'fase-40',
     title: 'Bastião do Colosso de Épsilon',
     threatRank: 'EXTREMA',
     bossName: 'COLOSSO BALUARTE DE ÉPSILON',
@@ -65,6 +67,7 @@ const RAID_MISSIONS: RiftRaidMission[] = [
   },
   {
     id: 'raid-03',
+    requiredPhase: 'fase-50',
     title: 'A Singularidade do Marco Zero',
     threatRank: 'SINGULARIDADE',
     bossName: 'CONVERGÊNCIA DAS LINHAS TEMPORAIS',
@@ -136,11 +139,11 @@ const INITIAL_SQUAD: CoopSquadMember[] = [
 export const RiftCoopScene: React.FC<RiftCoopSceneProps> = ({
   player,
   setPlayer,
+  completedPhases,
   onBackToNexus,
 }) => {
+  const playerStats = StatCalculator.calculate(player);
   const [subMode, setSubMode] = useState<'LOBBY' | 'COMBAT' | 'VICTORY'>('LOBBY');
-  const [sessionCode, setSessionCode] = useState<string>('FENDA-DELTA-902');
-  const [copiedCode, setCopiedCode] = useState<boolean>(false);
   const [selectedMission, setSelectedMission] = useState<RiftRaidMission>(RAID_MISSIONS[0]);
   const [squad, setSquad] = useState<CoopSquadMember[]>(() => {
     return INITIAL_SQUAD.map(m =>
@@ -164,48 +167,14 @@ export const RiftCoopScene: React.FC<RiftCoopSceneProps> = ({
   const [isBossAction, setIsBossAction] = useState<boolean>(false);
   const [bossIntent, setBossIntent] = useState<string>('Preparando vórtice de matéria escura');
   const [commsLog, setCommsLog] = useState<string[]>([
-    'TRANSMISSÃO: Link neural do esquadrão estabelecido.',
+    'Canal tático local estabelecido.',
     'Lyra: "Sensores calibrados. Estou pronta para suporte nanítico."',
     'Marcus: "Minha barreira cinética está armada. Mantenham o foco no alvo."',
   ]);
   const [animTrigger, setAnimTrigger] = useState<string | null>(null);
 
-  // Cross-tab real sync channel
-  useEffect(() => {
-    let channel: BroadcastChannel | null = null;
-    try {
-      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-        channel = new BroadcastChannel('ruptura-rift-net');
-        channel.onmessage = (event) => {
-          if (event.data?.type === 'SQUAD_CHAT') {
-            setCommsLog(prev => [event.data.text, ...prev.slice(0, 15)]);
-          } else if (event.data?.type === 'RESONANCE_BOOST') {
-            setResonance(r => Math.min(100, r + (event.data.amount || 15)));
-          }
-        };
-      }
-    } catch {}
-
-    return () => {
-      try {
-        channel?.close();
-      } catch {}
-    };
-  }, []);
-
-  const handleCopyCode = () => {
-    try {
-      navigator.clipboard.writeText(sessionCode);
-      setCopiedCode(true);
-      setTimeout(() => setCopiedCode(false), 2000);
-      audio.playClick();
-    } catch {
-      setCopiedCode(true);
-      setTimeout(() => setCopiedCode(false), 2000);
-    }
-  };
-
   const handleStartRaid = (mission: RiftRaidMission) => {
+    if (!isRiftRaidUnlocked(mission, completedPhases)) return;
     audio.playPortal();
     setSelectedMission(mission);
     setBossHp(mission.bossHp);
@@ -224,7 +193,10 @@ export const RiftCoopScene: React.FC<RiftCoopSceneProps> = ({
   // Turn Actions
   const handlePlayerAttack = () => {
     audio.playLaser();
-    const dmg = Math.floor(player.atk * 1.8) + Math.floor(Math.random() * 10);
+    const dmg = calculateDamageAgainstDefense(
+      Math.floor(playerStats.atk * 1.8) + Math.floor(Math.random() * 10),
+      selectedMission.bossDef
+    );
     const staggerGain = 18;
     const resGain = 15;
 
@@ -271,7 +243,7 @@ export const RiftCoopScene: React.FC<RiftCoopSceneProps> = ({
       ]);
     } else if (role === 'KIRA_VOID') {
       // Kira deals heavy void damage
-      const critDmg = 95 + Math.floor(Math.random() * 30);
+      const critDmg = calculateDamageAgainstDefense(95 + Math.floor(Math.random() * 30), selectedMission.bossDef, 0.4);
       setBossHp(prev => Math.max(0, prev - critDmg));
       setResonance(r => Math.min(100, r + 25));
       setCommsLog(prev => [
@@ -292,7 +264,7 @@ export const RiftCoopScene: React.FC<RiftCoopSceneProps> = ({
     setTimeout(() => {
       // Boss counter-attack
       audio.playEnemyAttack();
-      const bossDmg = Math.max(10, selectedMission.bossAtk - Math.floor(player.def * 0.4));
+      const bossDmg = Math.max(10, selectedMission.bossAtk - Math.floor(playerStats.def * 0.4));
       
       // Damage distributed across squad
       setSquad(prev =>
@@ -329,7 +301,7 @@ export const RiftCoopScene: React.FC<RiftCoopSceneProps> = ({
     audio.playResonanceCombo();
     setAnimTrigger('RESONANCE_BURST');
 
-    const massiveDmg = 380 + Math.floor(Math.random() * 80);
+    const massiveDmg = calculateDamageAgainstDefense(380 + Math.floor(Math.random() * 80), selectedMission.bossDef, 0.65);
     setBossHp(prev => Math.max(0, prev - massiveDmg));
     setBossStagger(100);
     setResonance(0);
@@ -351,17 +323,7 @@ export const RiftCoopScene: React.FC<RiftCoopSceneProps> = ({
   const handleRaidVictory = () => {
     audio.playVictory();
     setSubMode('VICTORY');
-
-    // Rewards
-    setPlayer(p => ({
-      ...p,
-      credits: p.credits + selectedMission.rewardCredits,
-      fragments: p.fragments + selectedMission.rewardFragments,
-      matrixCells: (p.matrixCells ?? 0) + selectedMission.rewardMatrixCells,
-      aetherCores: (p.aetherCores ?? 0) + selectedMission.rewardAetherCores,
-      coopRaidsCompleted: (p.coopRaidsCompleted ?? 0) + 1,
-      exp: p.exp + 350,
-    }));
+    setPlayer(p => grantRiftRaidReward(p, selectedMission));
   };
 
   return (
@@ -379,14 +341,14 @@ export const RiftCoopScene: React.FC<RiftCoopSceneProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded font-bold border border-cyan-500/40">
-                  REDE MULTIPLAYER RUPTURA 5.0
+                  INCURSÕES LOCAIS
                 </span>
-                <span className="text-[10px] text-emerald-400 flex items-center gap-1 font-bold">
-                  <Wifi className="w-3 h-3 animate-pulse" /> SINC: ATIVA
+                <span className="text-[10px] text-amber-300 flex items-center gap-1 font-bold">
+                  MODO OFFLINE
                 </span>
               </div>
               <h1 className="text-xl sm:text-2xl font-black text-white tracking-wider">
-                FENDAS SINCRONIZADAS — CO-OP MULTIPLAYER
+                INCURSÕES DA FENDA — ESQUADRÃO LOCAL
               </h1>
             </div>
           </div>
@@ -408,42 +370,25 @@ export const RiftCoopScene: React.FC<RiftCoopSceneProps> = ({
         {/* --- VIEW 1: LOBBY & MISSION SELECTION --- */}
         {subMode === 'LOBBY' && (
           <div className="space-y-4">
-            {/* Session Room Bar */}
+            {/* Local companion squad; this build has no online room transport. */}
             <div className="p-4 rounded-2xl bg-slate-900/90 border border-cyan-500/40 backdrop-blur-md flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <Radio className="w-5 h-5 text-cyan-400 animate-pulse" />
+                <Users className="w-5 h-5 text-cyan-400" />
                 <div>
-                  <span className="text-[10px] text-slate-400 block">SALA DE SINCRONIZAÇÃO DA FENDA</span>
-                  <span className="text-sm sm:text-base font-bold text-white tracking-widest">{sessionCode}</span>
+                  <span className="text-[10px] text-slate-400 block">ESQUADRÃO LOCAL</span>
+                  <span className="text-sm sm:text-base font-bold text-white">Kael e três companheiros controlados pelo jogo</span>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleCopyCode}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-750 border border-slate-700 rounded-xl text-xs text-cyan-300 flex items-center gap-1.5 transition touch-manipulation cursor-pointer"
-                >
-                  {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedCode ? 'CÓDIGO COPIADO' : 'COPIAR CÓDIGO'}</span>
-                </button>
-                <button
-                  onClick={() => {
-                    const newCode = `FENDA-${Math.floor(1000 + Math.random() * 9000)}`;
-                    setSessionCode(newCode);
-                    audio.playClick();
-                  }}
-                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-750 border border-slate-700 rounded-xl text-xs text-slate-300 flex items-center gap-1.5 transition touch-manipulation cursor-pointer"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>GERAR NOVA SALA</span>
-                </button>
-              </div>
+              <span className="text-xs text-amber-300 border border-amber-500/30 bg-amber-950/30 px-3 py-2 rounded-lg">
+                Salas online não estão configuradas
+              </span>
             </div>
 
             {/* Squad Members Cards Grid */}
             <div>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold text-slate-400">ESQUADRÃO SINCRONIZADO (4 OPERADORES)</span>
-                <span className="text-[11px] text-cyan-400 font-bold">100% PRONTO</span>
+                <span className="text-xs font-bold text-slate-400">COMPANHEIROS DE INCURSÃO (4 OPERADORES)</span>
+                <span className="text-[11px] text-cyan-400 font-bold">EQUIPE LOCAL</span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 {squad.map(member => (
@@ -476,7 +421,10 @@ export const RiftCoopScene: React.FC<RiftCoopSceneProps> = ({
                 <span className="text-[11px] text-amber-400 font-bold">ESPÓLIOS COLETIVOS</span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {RAID_MISSIONS.map(mission => (
+                {RAID_MISSIONS.map(mission => {
+                  const raidUnlocked = isRiftRaidUnlocked(mission, completedPhases);
+                  const rewardReceived = hasReceivedRiftRaidReward(player, mission.id);
+                  return (
                   <div
                     key={mission.id}
                     className={`p-5 rounded-2xl border transition flex flex-col justify-between min-h-[220px] ${
@@ -494,6 +442,9 @@ export const RiftCoopScene: React.FC<RiftCoopSceneProps> = ({
                       </div>
                       <h3 className="text-base font-bold text-white mb-1">{mission.title}</h3>
                       <p className="text-xs text-slate-400 leading-relaxed mb-2">{mission.description}</p>
+                      {!raidUnlocked && (
+                        <p className="text-[10px] text-amber-300 mb-2">Desbloqueia ao concluir {mission.requiredPhase?.toUpperCase()}.</p>
+                      )}
                       <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800 text-[10px] text-amber-300 flex items-start gap-1.5 mb-3">
                         <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
                         <span>{mission.mechanicWarning}</span>
@@ -502,21 +453,23 @@ export const RiftCoopScene: React.FC<RiftCoopSceneProps> = ({
 
                     <div>
                       <div className="text-[10px] text-slate-400 mb-3 flex items-center justify-between">
-                        <span>RECOMPENSAS:</span>
+                        <span>{rewardReceived ? 'RECOMPENSA RESGATADA:' : 'RECOMPENSAS:'}</span>
                         <span className="text-cyan-300 font-bold">
                           {mission.rewardCredits} CR • {mission.rewardFragments} FRAG • {mission.rewardMatrixCells} CÉL
                         </span>
                       </div>
                       <button
+                        disabled={!raidUnlocked}
                         onClick={() => handleStartRaid(mission)}
-                        className="w-full py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 font-bold text-xs uppercase tracking-wider text-white shadow-lg shadow-cyan-600/30 flex items-center justify-center gap-1.5 transition touch-manipulation cursor-pointer"
+                        className="w-full py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 font-bold text-xs uppercase tracking-wider text-white shadow-lg shadow-cyan-600/30 flex items-center justify-center gap-1.5 transition touch-manipulation cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         <Crosshair className="w-4 h-4" />
-                        <span>INICIAR INCURSÃO</span>
+                        <span>{!raidUnlocked ? 'INCURSÃO BLOQUEADA' : rewardReceived ? 'REJOGAR SEM RECOMPENSA' : 'INICIAR INCURSÃO'}</span>
                       </button>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -676,7 +629,7 @@ export const RiftCoopScene: React.FC<RiftCoopSceneProps> = ({
                 <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 space-y-1.5 max-h-[140px] overflow-y-auto text-xs">
                   <div className="flex items-center gap-1.5 text-cyan-400 font-bold border-b border-slate-800 pb-1">
                     <MessageSquare className="w-3.5 h-3.5" />
-                    <span>CANAL DE VOZ DO ESQUADRÃO (LOG EM TEMPO REAL)</span>
+                    <span>COMUNICAÇÃO TÁTICA LOCAL (LOG DE COMBATE)</span>
                   </div>
                   {commsLog.map((log, index) => (
                     <p
@@ -715,7 +668,7 @@ export const RiftCoopScene: React.FC<RiftCoopSceneProps> = ({
               INCURSÃO COOPERATIVA CONCLUÍDA!
             </h2>
             <p className="text-xs sm:text-sm text-slate-300">
-              O esquadrão neutralizou {selectedMission.bossName} com sincronização perfeita. Os espólios dimensionais foram transferidos para o inventário do Nexus.
+              Kael e seus companheiros neutralizaram {selectedMission.bossName}. Os espólios foram transferidos para o inventário do Nexus.
             </p>
 
             <div className="p-4 rounded-xl bg-slate-950/80 border border-cyan-500/30 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">

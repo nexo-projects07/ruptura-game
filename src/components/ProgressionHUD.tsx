@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { PlayerState } from '../types/game';
 import { audio } from '../systems/AudioEngine';
+import { getExplorerProfile } from '../systems/ExplorerSystem';
 
 export const ProgressionHUD: React.FC<{
   player: PlayerState;
@@ -31,6 +32,7 @@ export const ProgressionHUD: React.FC<{
   onQuestLogClick,
 }) => {
   const [muted, setMuted] = useState(audio.muted);
+  const explorer = getExplorerProfile(player.activeExplorerId);
   const expPercent = Math.min(100, Math.floor((player.exp / player.maxExp) * 100));
 
   const toggleMute = () => {
@@ -47,13 +49,13 @@ export const ProgressionHUD: React.FC<{
         </div>
         <div>
           <div className="flex items-center gap-1.5 sm:gap-2">
-            <span className="font-bold text-white tracking-wider text-xs sm:text-sm md:text-base">{player.name}</span>
+            <span className="font-bold text-white tracking-wider text-xs sm:text-sm md:text-base">{explorer.name}</span>
             <span className="text-[9px] sm:text-[10px] md:text-xs bg-cyan-500/20 text-cyan-300 px-1.5 sm:px-2 py-0.2 sm:py-0.5 rounded border border-cyan-500/30 uppercase font-semibold">
-              {player.role}
+              {explorer.role}
             </span>
           </div>
           <p className="text-[8px] sm:text-[9px] md:text-[10px] text-cyan-400/80 font-mono tracking-widest uppercase">
-            RUPTURA 5.0 · EXPANSÃO DEFINITIVA
+            RUPTURA · EXPLORADOR DIMENSIONAL
           </p>
         </div>
       </div>

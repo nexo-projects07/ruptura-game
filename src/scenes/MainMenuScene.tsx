@@ -48,11 +48,10 @@ export const MainMenuScene: React.FC<MainMenuSceneProps> = ({
           <Sparkles className="w-3.5 h-3.5 text-cyan-300 animate-pulse" />
           <span>RPG SCI-FI DIMENSIONAL</span>
           <span aria-hidden="true" className="text-cyan-600">·</span>
-          <span className="text-cyan-300 font-bold">V5.0 ULTIMATE EXPANSION</span>
         </div>
 
         <h1 className="text-3xl sm:text-5xl md:text-6xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-fuchsia-400 to-indigo-300 drop-shadow-[0_0_25px_rgba(6,182,212,0.6)] mb-2">
-          RUPTURA 5.0
+          RUPTURA
         </h1>
 
         <p className="text-[10px] sm:text-xs md:text-sm text-cyan-300/90 tracking-wider uppercase mb-2 sm:mb-3">
@@ -120,7 +119,7 @@ export const MainMenuScene: React.FC<MainMenuSceneProps> = ({
       </div>
 
       <footer className="relative z-10 text-[10px] sm:text-xs text-slate-400 mt-4 font-mono">
-        RUPTURA 4.0 DEFINITIVA • MOTOR MULTIVERSAL DE COMBATE E ÁUDIO PROCEDURAL
+        MOTOR MULTIVERSAL DE COMBATE E ÁUDIO PROCEDURAL
       </footer>
 
       <SettingsModal

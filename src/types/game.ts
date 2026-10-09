@@ -33,6 +33,25 @@ export type ScreenType =
   | 'RIFT_COOP';
 
 export type CompanionRole = 'LYRA_TACTICIAN' | 'MARCUS_JUGGERNAUT' | 'KIRA_VOID';
+export type ExplorerId = 'kael' | 'lyra' | 'marcus' | 'kira' | 'sena';
+export type CampaignActivityType = 'DECODE' | 'DEFEND' | 'EXTRACT';
+export interface CampaignInvasionDefinition {
+  id: string;
+  realmId: string;
+  affectedPhaseId: string;
+  alert: string;
+  securedConsequence: string;
+  breachedConsequence: string;
+}
+export type CampaignInvasionOutcome = 'SECURED' | 'BREACHED';
+
+export interface CampaignInvasionRecord {
+  outcome: CampaignInvasionOutcome;
+  realmId: string;
+  affectedPhaseId: string;
+  securedConsequence: string;
+  breachedConsequence: string;
+}
 
 export interface CoopSquadMember {
   id: string;
@@ -50,6 +69,7 @@ export interface CoopSquadMember {
 
 export interface RiftRaidMission {
   id: string;
+  requiredPhase?: string;
   title: string;
   threatRank: 'ALTA' | 'EXTREMA' | 'SINGULARIDADE';
   bossName: string;
@@ -120,6 +140,7 @@ export interface TalentNode {
   description: string;
   tier: number;
   requiredLevel: number;
+  requiredExplorerId?: ExplorerId;
   requiredTalents?: string[];
   costPoints: number;
   costMatrixCells?: number;
@@ -198,6 +219,10 @@ export interface CalculatedStats {
 export interface PlayerState {
   name: string;
   role: string;
+  activeExplorerId?: ExplorerId;
+  explorerSelectionManual?: boolean;
+  campaignProgressVersion?: number;
+  legacyChapterMarkers?: string[];
   level: number;
   hp: number;
   maxHp: number;
@@ -228,8 +253,11 @@ export interface PlayerState {
   // RUPTURA 5.0 Fields
   activeCompanion?: CompanionRole;
   coopRaidsCompleted?: number;
+  completedRiftRaids?: string[];
   currentSkin?: string;
   unlockedSkins?: string[];
+  claimedChapterRewards?: string[];
+  invasionOutcomes?: Record<string, CampaignInvasionRecord>;
 }
 
 export interface EnemyIntent {
@@ -237,6 +265,23 @@ export interface EnemyIntent {
   description: string;
   power: number;
 }
+
+export type EnemyVisualId =
+  | 'rasgador'
+  | 'eco'
+  | 'sentinela'
+  | 'guardiao'
+  | 'avatar'
+  | 'arquiteto'
+  | 'cartografo'
+  | 'vigia'
+  | 'predador'
+  | 'prototipo'
+  | 'containment_core'
+  | 'commander_vertex'
+  | 'rift_admiral'
+  | 'collapse_herald'
+  | 'convergence_sovereign';
 
 export interface EnemyState {
   name: string;
@@ -253,7 +298,7 @@ export interface EnemyState {
   bossType?: 'NORMAL' | 'GUARDIAN' | 'AVATAR' | 'ARCHITECT';
   stagger?: number; // 0 to 100
   isStaggered?: boolean;
-  avatarType?: 'rasgador' | 'eco' | 'sentinela' | 'guardiao' | 'avatar' | 'arquiteto';
+  avatarType?: EnemyVisualId;
 }
 
 export interface NodeData {

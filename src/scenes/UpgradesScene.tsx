@@ -15,6 +15,7 @@ import { AtmosphericCanvas } from '../components/AtmosphericCanvas';
 import { ProgressionHUD } from '../components/ProgressionHUD';
 import { PlayerState } from '../types/game';
 import { audio } from '../systems/AudioEngine';
+import { calculateUpgradeCost } from '../systems/UpgradeSystem';
 
 interface UpgradeItem {
   id: string;
@@ -89,8 +90,9 @@ export const UpgradesScene: React.FC<{
     const currentLvl = upgrades[item.id] ?? 0;
     if (currentLvl >= item.maxLevel) return;
 
+    const cost = calculateUpgradeCost(item.costCredits, item.costCells, currentLvl);
     const cells = player.matrixCells ?? 0;
-    if (player.credits < item.costCredits || cells < item.costCells) {
+    if (player.credits < cost.credits || cells < cost.matrixCells) {
       audio.playDenied();
       setFeedback('❌ Recursos insuficientes para este aprimoramento.');
       setTimeout(() => setFeedback(null), 2500);
@@ -116,8 +118,8 @@ export const UpgradesScene: React.FC<{
 
       return {
         ...p,
-        credits: p.credits - item.costCredits,
-        matrixCells: (p.matrixCells ?? 0) - item.costCells,
+        credits: p.credits - cost.credits,
+        matrixCells: (p.matrixCells ?? 0) - cost.matrixCells,
         maxHp: nextMaxHp,
         hp: Math.min(nextMaxHp, p.hp + 20),
         atk: nextAtk,
@@ -183,8 +185,9 @@ export const UpgradesScene: React.FC<{
           {UPGRADE_LIST.map(item => {
             const lvl = upgrades[item.id] ?? 0;
             const isMax = lvl >= item.maxLevel;
+            const cost = calculateUpgradeCost(item.costCredits, item.costCells, lvl);
             const cells = player.matrixCells ?? 0;
-            const canAfford = player.credits >= item.costCredits && cells >= item.costCells;
+            const canAfford = player.credits >= cost.credits && cells >= cost.matrixCells;
 
             return (
               <div
@@ -212,9 +215,9 @@ export const UpgradesScene: React.FC<{
                 <div className="pt-3 border-t border-slate-800 flex items-center justify-between">
                   <div className="text-xs text-slate-300 space-x-2">
                     <span>Custo:</span>
-                    <strong className="text-amber-400">{item.costCredits} Cr</strong>
+                    <strong className="text-amber-400">{cost.credits} Cr</strong>
                     <span>+</span>
-                    <strong className="text-emerald-400">{item.costCells} Células</strong>
+                    <strong className="text-emerald-400">{cost.matrixCells} Células</strong>
                   </div>
 
                   <button

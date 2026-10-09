@@ -28,12 +28,14 @@ import { audio } from '../systems/AudioEngine';
 interface InventorySceneProps {
   player: PlayerState;
   setPlayer: React.Dispatch<React.SetStateAction<PlayerState>>;
+  completedPhases: string[];
   onBackToNexus: () => void;
 }
 
 export const InventoryScene: React.FC<InventorySceneProps> = ({
   player,
   setPlayer,
+  completedPhases,
   onBackToNexus,
 }) => {
   const [selectedSlotFilter, setSelectedSlotFilter] = useState<EquipmentSlot | 'ALL'>('ALL');
@@ -43,7 +45,7 @@ export const InventoryScene: React.FC<InventorySceneProps> = ({
 
   // Unlocked skins calculation
   const unlockedSkinIds = SkinRegistry.getUnlockedSkins(
-    player.unlockedRealms ?? [],
+    completedPhases,
     player.level,
     player.discoveredSecrets?.length ?? 0,
     player.defeatedSecretBosses ?? [],
@@ -313,8 +315,8 @@ export const InventoryScene: React.FC<InventorySceneProps> = ({
                 <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
                   {SkinRegistry.getSkin(player.currentSkin || 'skin-default').description}
                 </p>
-                <div className="mt-3 p-2 bg-slate-950 rounded-xl border border-fuchsia-500/30 text-xs text-emerald-300 font-bold">
-                  Bônus Passivo: {SkinRegistry.getSkin(player.currentSkin || 'skin-default').statPerkDescription}
+                <div className="mt-3 p-2 bg-slate-950 rounded-xl border border-fuchsia-500/30 text-xs text-slate-300">
+                  Cosmética: altera apenas a aparência, sem modificar atributos ou combate.
                 </div>
               </div>
             </div>
@@ -352,7 +354,7 @@ export const InventoryScene: React.FC<InventorySceneProps> = ({
                               border: `1px solid ${s.palette.primary}60`,
                             }}
                           >
-                            {s.bonusTag || 'SKIN'}
+                            COSMÉTICA
                           </span>
                           {isEquipped ? (
                             <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded border border-emerald-500/40 font-bold flex items-center gap-1">

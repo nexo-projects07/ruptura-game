@@ -1,4 +1,4 @@
-# RUPTURA V1.0 FINAL — campanha integrada
+# RUPTURA — RPG Sci-Fi Dimensional
 
 RPG de aventura dimensional feito com React, TypeScript, Vite e Tailwind CSS.
 
@@ -13,11 +13,14 @@ RPG de aventura dimensional feito com React, TypeScript, Vite e Tailwind CSS.
 4. Execute `npm run dev`.
 5. Abra o endereço local mostrado pelo Vite.
 
-## Validar a compilação
-Execute `npm run build`. A pasta `dist/` será criada quando a compilação terminar sem erros.
+## Testes e validação
+```sh
+npm run lint
+./node_modules/.bin/tsx tests/test_module_a.mjs
+npm run build
+```
 
 ## Campanha integrada
-O mapa possui 10 fases encadeadas. Vencer uma fase desbloqueia a seguinte. O progresso e o estado do jogador são salvos no armazenamento local do navegador.
+O mapa possui 5 capítulos com 10 fases de combate cada. Concluir uma fase libera a próxima; o progresso e o estado do jogador são salvos no armazenamento local do navegador. Os capítulos atribuem protagonistas diferentes e preservam o progresso de saves anteriores.
 
-## Observação de validação
-O código-fonte foi integrado e empacotado. A compilação de produção não pôde ser confirmada neste ambiente porque a instalação das dependências npm expirou sem concluir. Execute os comandos acima em uma conexão com acesso ao registry npm antes de publicar.
+As incursões usam companheiros controlados pelo jogo e funcionam localmente. Salas online não estão configuradas; isso exige transporte de rede e serviço de sinalização.

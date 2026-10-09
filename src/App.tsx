@@ -1,27 +1,32 @@
-import React, { useEffect, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { AlertTriangle, ArrowLeft, Crosshair, MapPin, Orbit } from 'lucide-react';
-import { CinematicPrologueScene } from './scenes/CinematicPrologueScene';
-import { CampaignMapScene, CAMPAIGN_PHASES, CampaignPhase } from './scenes/CampaignMapScene';
-import { CombatScene } from './scenes/CombatScene';
-import { VictoryScene } from './scenes/VictoryScene';
-import { DefeatScene } from './scenes/DefeatScene';
-import { MainMenuScene } from './scenes/MainMenuScene';
-import { NexusHubScene } from './scenes/NexusHubScene';
-import { MultiverseMapScene, MULTIVERSE_REALMS } from './scenes/MultiverseMapScene';
-import { ExplorationScene } from './scenes/ExplorationScene';
-import { UpgradesScene } from './scenes/UpgradesScene';
-import { LoreArchivesScene } from './scenes/LoreArchivesScene';
-import { InventoryScene } from './scenes/InventoryScene';
-import { SkillTreeScene } from './scenes/SkillTreeScene';
-import { QuestLogScene } from './scenes/QuestLogScene';
-import { SecretBossesScene } from './scenes/SecretBossesScene';
-import { RiftCoopScene } from './scenes/RiftCoopScene';
-import { PlayerState, EnemyState, RealmData, SecretBossConfig } from './types/game';
+import { CAMPAIGN_PHASES } from './systems/CampaignChapters';
+import type { CampaignPhase } from './scenes/CampaignMapScene';
+import type { EnemyState, PlayerState, RealmData, SecretBossConfig } from './types/game';
 import { audio } from './systems/AudioEngine';
 import { SaveEngine } from './systems/SaveEngine';
 import { StatCalculator } from './systems/StatCalculator';
-import { TacticalChoice } from './components/BossConfrontationModal';
+import { grantCampaignPhaseRewards, grantSecretBossRewards, inferClaimedChapterRewards, inferLegacyChapterMarkers, getLegacyContinuationPhaseIds, getNextCampaignPhaseId } from './systems/CampaignProgressionSystem';
+import { getInvasionConsequenceForPhase, getInvasionThreatMultiplier, resolveCampaignInvasion } from './systems/CampaignInvasionSystem';
+import type { TacticalChoice } from './components/BossConfrontationModal';
 
+const CinematicPrologueScene = lazy(() => import('./scenes/CinematicPrologueScene').then(module => ({ default: module.CinematicPrologueScene })));
+const CampaignActivityScene = lazy(() => import('./scenes/CampaignActivityScene').then(module => ({ default: module.CampaignActivityScene })));
+const CampaignMapScene = lazy(() => import('./scenes/CampaignMapScene').then(module => ({ default: module.CampaignMapScene })));
+const CombatScene = lazy(() => import('./scenes/CombatScene').then(module => ({ default: module.CombatScene })));
+const VictoryScene = lazy(() => import('./scenes/VictoryScene').then(module => ({ default: module.VictoryScene })));
+const DefeatScene = lazy(() => import('./scenes/DefeatScene').then(module => ({ default: module.DefeatScene })));
+const MainMenuScene = lazy(() => import('./scenes/MainMenuScene').then(module => ({ default: module.MainMenuScene })));
+const NexusHubScene = lazy(() => import('./scenes/NexusHubScene').then(module => ({ default: module.NexusHubScene })));
+const MultiverseMapScene = lazy(() => import('./scenes/MultiverseMapScene').then(module => ({ default: module.MultiverseMapScene })));
+const ExplorationScene = lazy(() => import('./scenes/ExplorationScene').then(module => ({ default: module.ExplorationScene })));
+const UpgradesScene = lazy(() => import('./scenes/UpgradesScene').then(module => ({ default: module.UpgradesScene })));
+const LoreArchivesScene = lazy(() => import('./scenes/LoreArchivesScene').then(module => ({ default: module.LoreArchivesScene })));
+const InventoryScene = lazy(() => import('./scenes/InventoryScene').then(module => ({ default: module.InventoryScene })));
+const SkillTreeScene = lazy(() => import('./scenes/SkillTreeScene').then(module => ({ default: module.SkillTreeScene })));
+const QuestLogScene = lazy(() => import('./scenes/QuestLogScene').then(module => ({ default: module.QuestLogScene })));
+const SecretBossesScene = lazy(() => import('./scenes/SecretBossesScene').then(module => ({ default: module.SecretBossesScene })));
+const RiftCoopScene = lazy(() => import('./scenes/RiftCoopScene').then(module => ({ default: module.RiftCoopScene })));
 const INITIAL_PLAYER: PlayerState = {
   name: 'KAEL',
   role: 'Explorador Dimensional',
@@ -41,6 +46,10 @@ const INITIAL_PLAYER: PlayerState = {
   upgradeLevels: { hp_suit: 0, plasma_blade: 0, kinetic_shield: 0, focus_cell: 0 },
   discoveredSecrets: [],
   unlockedRealms: ['realm-alpha'],
+  activeExplorerId: 'kael',
+  explorerSelectionManual: false,
+  campaignProgressVersion: 2,
+  legacyChapterMarkers: [],
   inventory: [
     {
       instanceId: 'starter-wpn-01',
@@ -72,6 +81,7 @@ type Scene =
   | 'PROLOGUE'
   | 'MAP'
   | 'BRIEFING'
+  | 'ACTIVITY'
   | 'COMBAT'
   | 'VICTORY'
   | 'DEFEAT'
@@ -86,16 +96,22 @@ type Scene =
   | 'SECRET_BOSSES'
   | 'RIFT_COOP';
 
-const initialEnemy = (phase: CampaignPhase): EnemyState => ({
+const initialEnemy = (phase: CampaignPhase, player: PlayerState = INITIAL_PLAYER): EnemyState => {
+  const threatMultiplier = getInvasionThreatMultiplier(player, phase.id);
+  const hp = Math.max(1, Math.round(phase.hp * threatMultiplier));
+  return ({
   name: phase.enemy.toUpperCase(),
-  hp: phase.hp,
-  maxHp: phase.hp,
-  atk: phase.atk,
+  hp,
+  maxHp: hp,
+  atk: Math.max(1, Math.round(phase.atk * threatMultiplier)),
   def: phase.def,
   boss: phase.boss ?? false,
   phase: 1,
-  maxPhases: phase.enemy.includes('Arquiteto') ? 3 : phase.boss ? 2 : 1,
-});
+  maxPhases: phase.maxPhases ?? (phase.enemy.includes('Arquiteto') ? 3 : phase.boss ? 2 : 1),
+  bossType: phase.bossType,
+  avatarType: phase.avatarType,
+  });
+};
 
 export default function App() {
   const [scene, setScene] = useState<Scene>('MENU');
@@ -114,10 +130,21 @@ export default function App() {
     const saved = SaveEngine.getSave();
     if (!saved) return;
     try {
+      const savedCompletedPhases = Array.isArray(saved.completedPhases) ? saved.completedPhases : [];
+      const isLegacyCampaignSave = (saved.player?.campaignProgressVersion ?? 0) < 2;
+      const inferredChapterRewards = isLegacyCampaignSave ? inferClaimedChapterRewards(savedCompletedPhases) : [];
+      const legacyChapterMarkers = saved.player?.legacyChapterMarkers
+        ?? (isLegacyCampaignSave ? inferLegacyChapterMarkers(savedCompletedPhases) : []);
+      const legacyContinuationPhases = isLegacyCampaignSave ? getLegacyContinuationPhaseIds(savedCompletedPhases) : [];
+
       if (saved.player) {
         setPlayer(prev => ({
           ...prev,
           ...saved.player,
+          activeExplorerId: saved.player.activeExplorerId ?? 'kael',
+          explorerSelectionManual: saved.player.explorerSelectionManual ?? false,
+          campaignProgressVersion: 2,
+          legacyChapterMarkers,
           focus: saved.player.focus ?? prev.focus ?? 30,
           matrixCells: saved.player.matrixCells ?? prev.matrixCells ?? 0,
           aetherCores: saved.player.aetherCores ?? prev.aetherCores ?? 0,
@@ -130,14 +157,17 @@ export default function App() {
           completedQuests: saved.player.completedQuests ?? prev.completedQuests ?? [],
           discoveredSecretBosses: saved.player.discoveredSecretBosses ?? prev.discoveredSecretBosses ?? [],
           defeatedSecretBosses: saved.player.defeatedSecretBosses ?? prev.defeatedSecretBosses ?? [],
+          claimedChapterRewards: Array.from(new Set([
+            ...(saved.player.claimedChapterRewards ?? []),
+            ...inferredChapterRewards,
+          ])),
         }));
       }
-      if (Array.isArray(saved.unlockedPhases) && saved.unlockedPhases.length > 0) {
-        setUnlockedPhases(saved.unlockedPhases);
-      }
-      if (Array.isArray(saved.completedPhases)) {
-        setCompletedPhases(saved.completedPhases);
-      }
+      const savedUnlockedPhases = Array.isArray(saved.unlockedPhases) && saved.unlockedPhases.length > 0
+        ? saved.unlockedPhases
+        : ['fase-01'];
+      setUnlockedPhases(Array.from(new Set([...savedUnlockedPhases, ...legacyContinuationPhases])));
+      setCompletedPhases(savedCompletedPhases);
       if (Array.isArray(saved.unlockedRealms) && saved.unlockedRealms.length > 0) {
         setUnlockedRealms(saved.unlockedRealms);
       }
@@ -145,6 +175,9 @@ export default function App() {
         setLastPhaseId(saved.lastPhaseId);
         const found = CAMPAIGN_PHASES.find(p => p.id === saved.lastPhaseId);
         if (found) setPhase(found);
+        if (!saved.player?.activeExplorerId && found?.protagonistId) {
+          setPlayer(prev => ({ ...prev, activeExplorerId: found.protagonistId }));
+        }
       }
     } catch {
       SaveEngine.clearSave();
@@ -187,6 +220,10 @@ export default function App() {
   // Select Phase from Campaign Map
   const choosePhase = (selected: CampaignPhase) => {
     if (!unlockedPhases.includes(selected.id)) return;
+    setActiveTacticalChoice(null);
+    if (selected.protagonistId && !player.explorerSelectionManual) {
+      setPlayer(prev => ({ ...prev, activeExplorerId: selected.protagonistId, explorerSelectionManual: false }));
+    }
     setPhase(selected);
     setLastPhaseId(selected.id);
     setActiveSecretBoss(null);
@@ -196,8 +233,13 @@ export default function App() {
 
   // Jump from Multiverse Map to specific Campaign Phase
   const handleGoToCampaignPhase = (phaseId: string) => {
+    if (!unlockedPhases.includes(phaseId)) return;
     const found = CAMPAIGN_PHASES.find(p => p.id === phaseId);
     if (found) {
+      setActiveTacticalChoice(null);
+      if (found.protagonistId && !player.explorerSelectionManual) {
+        setPlayer(prev => ({ ...prev, activeExplorerId: found.protagonistId, explorerSelectionManual: false }));
+      }
       setPhase(found);
       setLastPhaseId(found.id);
       setActiveSecretBoss(null);
@@ -268,11 +310,20 @@ export default function App() {
   const startCombat = (choice?: TacticalChoice) => {
     setActiveSecretBoss(null);
     setActiveTacticalChoice(choice ?? null);
-    setEnemy(initialEnemy(phase));
+    setEnemy(initialEnemy(phase, player));
     const calculated = StatCalculator.calculate(player);
     setPlayer(p => ({ ...p, hp: calculated.maxHp }));
     setScene('COMBAT');
     audio.playClick();
+  };
+
+  const startCurrentPhase = () => {
+    if (phase.activityType) {
+      setActiveTacticalChoice(null);
+      setScene('ACTIVITY');
+      return;
+    }
+    startCombat(activeTacticalChoice ?? undefined);
   };
 
   // Handle Victory
@@ -281,115 +332,38 @@ export default function App() {
 
     // If victory against Secret Boss
     if (activeSecretBoss) {
-      const reward = activeSecretBoss.rewards;
-      setPlayer(p => {
-        const alreadyDefeated = p.defeatedSecretBosses?.includes(activeSecretBoss.id);
-        const updatedDefeated = alreadyDefeated
-          ? p.defeatedSecretBosses
-          : [...(p.defeatedSecretBosses ?? []), activeSecretBoss.id];
-
-        const newInv = [...(p.inventory ?? [])];
-        if (reward.itemId) {
-          newInv.push({
-            instanceId: `inst-${Date.now()}-${Math.random()}`,
-            itemId: reward.itemId,
-            equipped: false,
-            acquiredAt: Date.now(),
-          });
-        }
-
-        let exp = p.exp + reward.exp;
-        let level = p.level;
-        let maxExp = p.maxExp;
-        let atk = p.atk;
-        let maxHp = p.maxHp;
-        let talentPoints = p.talentPoints ?? 0;
-
-        if (exp >= maxExp) {
-          exp -= maxExp;
-          level += 1;
-          talentPoints += 1;
-          maxExp = Math.floor(maxExp * 1.35);
-          atk += 3;
-          maxHp += 10;
-        }
-
-        return {
-          ...p,
-          exp,
-          level,
-          maxExp,
-          atk,
-          maxHp,
-          hp: maxHp,
-          talentPoints,
-          credits: p.credits + reward.credits,
-          fragments: p.fragments + reward.fragments,
-          matrixCells: (p.matrixCells ?? 0) + (reward.matrixCells ?? 0),
-          inventory: newInv,
-          defeatedSecretBosses: updatedDefeated,
-        };
-      });
-      setActiveSecretBoss(null);
+      setPlayer(p => grantSecretBossRewards(p, activeSecretBoss));
       setScene('VICTORY');
       return;
     }
 
     // Normal Campaign Victory
-    setPlayer(p => {
-      let exp = p.exp + 120;
-      let level = p.level;
-      let maxExp = p.maxExp;
-      let atk = p.atk;
-      let maxHp = p.maxHp;
-      let talentPoints = p.talentPoints ?? 0;
+    const firstClear = !completedPhases.includes(phase.id);
+    setPlayer(p => grantCampaignPhaseRewards(p, phase.id, completedPhases));
 
-      if (exp >= maxExp) {
-        exp -= maxExp;
-        level += 1;
-        talentPoints += 1;
-        maxExp = Math.floor(maxExp * 1.35);
-        atk += 3;
-        maxHp += 10;
+    if (firstClear) {
+      // Mark completed
+      setCompletedPhases(prev => [...prev, phase.id]);
+
+      // Unlock next phase in sequence
+      const nextId = getNextCampaignPhaseId(phase.id);
+      if (nextId) {
+        setUnlockedPhases(prev => (prev.includes(nextId) ? prev : [...prev, nextId]));
       }
 
-      return {
-        ...p,
-        exp,
-        level,
-        maxExp,
-        atk,
-        maxHp,
-        hp: maxHp,
-        talentPoints,
-        credits: p.credits + 50,
-        fragments: p.fragments + 1,
-        matrixCells: (p.matrixCells ?? 0) + 1,
-      };
-    });
-
-    // Mark completed
-    setCompletedPhases(prev => (prev.includes(phase.id) ? prev : [...prev, phase.id]));
-
-    // Unlock next phase in sequence
-    const idx = CAMPAIGN_PHASES.findIndex(p => p.id === phase.id);
-    if (idx >= 0 && idx < CAMPAIGN_PHASES.length - 1) {
-      const nextId = CAMPAIGN_PHASES[idx + 1].id;
-      setUnlockedPhases(prev => (prev.includes(nextId) ? prev : [...prev, nextId]));
-    }
-
-    // Unlock Realms based on milestone phases
-    if (phase.id === 'fase-05' && !unlockedRealms.includes('realm-beta')) {
-      setUnlockedRealms(prev => [...prev, 'realm-beta']);
-    }
-    if (phase.id === 'fase-08' && !unlockedRealms.includes('realm-gamma')) {
-      setUnlockedRealms(prev => [...prev, 'realm-gamma']);
-    }
-    if (phase.id === 'fase-07' && !unlockedRealms.includes('realm-epsilon')) {
-      setUnlockedRealms(prev => [...prev, 'realm-epsilon']);
-    }
-    if (phase.id === 'fase-10' && !unlockedRealms.includes('realm-omega')) {
-      setUnlockedRealms(prev => [...prev, 'realm-omega']);
+      // Unlock Realms based on milestone phases
+      if (phase.id === 'fase-05' && !unlockedRealms.includes('realm-beta')) {
+        setUnlockedRealms(prev => [...prev, 'realm-beta']);
+      }
+      if (phase.id === 'fase-08' && !unlockedRealms.includes('realm-gamma')) {
+        setUnlockedRealms(prev => [...prev, 'realm-gamma']);
+      }
+      if (phase.id === 'fase-07' && !unlockedRealms.includes('realm-epsilon')) {
+        setUnlockedRealms(prev => [...prev, 'realm-epsilon']);
+      }
+      if (phase.id === 'fase-10' && !unlockedRealms.includes('realm-omega')) {
+        setUnlockedRealms(prev => [...prev, 'realm-omega']);
+      }
     }
 
     setScene('VICTORY');
@@ -402,10 +376,26 @@ export default function App() {
     if (activeSecretBoss) {
       handleStartSecretBossCombat(activeSecretBoss);
     } else {
-      setEnemy(initialEnemy(phase));
+      setEnemy(initialEnemy(phase, player));
       setScene('COMBAT');
     }
   };
+
+  const completeActivity = () => {
+    if (phase.invasion) {
+      setPlayer(current => resolveCampaignInvasion(current, phase.invasion!, 'SECURED'));
+    }
+    handleVictory();
+  };
+
+  const abandonActivity = () => {
+    if (phase.invasion) {
+      setPlayer(current => resolveCampaignInvasion(current, phase.invasion!, 'BREACHED'));
+    }
+    setScene('MAP');
+  };
+
+  const invasionConsequence = getInvasionConsequenceForPhase(player, phase.id);
 
   // Debug unlock all 10 phases for test validation
   const handleUnlockAllDebug = () => {
@@ -417,6 +407,7 @@ export default function App() {
 
   return (
     <div className="w-full h-screen bg-slate-950 text-slate-50 overflow-hidden flex flex-col select-none">
+      <Suspense fallback={<div className="flex-1 grid place-items-center text-cyan-300 text-xs tracking-widest">CARREGANDO CENA...</div>}>
       {/* 1. MAIN MENU */}
       {scene === 'MENU' && (
         <MainMenuScene
@@ -438,9 +429,14 @@ export default function App() {
           unlockedPhases={unlockedPhases}
           completedPhases={completedPhases}
           onSelectPhase={choosePhase}
+          onSelectExplorer={(id, manual) => setPlayer(prev => ({
+            ...prev,
+            activeExplorerId: id,
+            explorerSelectionManual: manual,
+          }))}
           onMenuClick={() => setScene('MENU')}
           onNexusClick={() => setScene('NEXUS')}
-          onUnlockAllDebug={handleUnlockAllDebug}
+          onUnlockAllDebug={import.meta.env.DEV ? handleUnlockAllDebug : undefined}
         />
       )}
 
@@ -480,8 +476,14 @@ export default function App() {
 
             <p className="text-slate-300 text-xs sm:text-sm leading-relaxed">{phase.summary}</p>
 
+            {invasionConsequence && (
+              <div className="p-3 rounded-lg border border-amber-500/40 bg-amber-950/30 text-xs text-amber-200">
+                CONSEQUÊNCIA DA INVASÃO: {invasionConsequence}
+              </div>
+            )}
+
             {/* Tactical Directives from Lyra */}
-            <div className="p-3 bg-slate-950/80 border border-cyan-500/30 rounded-xl space-y-2">
+            <div hidden={Boolean(phase.activityType)} className="p-3 bg-slate-950/80 border border-cyan-500/30 rounded-xl space-y-2">
               <div className="flex items-center justify-between text-[11px] text-cyan-300 font-bold">
                 <span>DIRETRIZ TÁTICA DE LYRA:</span>
                 <span className="text-[10px] text-slate-400">SELECIONE UMA VANTAGEM</span>
@@ -553,6 +555,17 @@ export default function App() {
               </div>
             </div>
 
+            {phase.activityType ? (
+              <div className="rounded-xl border border-cyan-500/30 bg-cyan-950/20 p-3 sm:p-4">
+                <div className="flex items-center gap-2 text-cyan-300 font-bold text-xs">
+                  <MapPin size={17} /> OBJETIVO DA ATIVIDADE
+                </div>
+                <p className="mt-1 text-sm font-bold text-white">{phase.activityObjective}</p>
+                <p className="text-xs text-slate-400 mt-1">
+                  {phase.activityType === 'DECODE' ? 'SINTONIA DE SINAL' : phase.activityType === 'DEFEND' ? 'DEFESA TÁTICA' : 'ROTA DE EXTRAÇÃO'}
+                </p>
+              </div>
+            ) : (
             <div className="rounded-xl border border-rose-500/30 bg-rose-950/30 p-3 sm:p-4">
               <div className="flex items-center gap-2 text-rose-300 font-bold text-xs">
                 <AlertTriangle size={17} /> AMEAÇA DETECTADA
@@ -563,15 +576,25 @@ export default function App() {
                 {phase.boss ? ' • [ENTIDADE CHEFE]' : ''}
               </p>
             </div>
+            )}
 
             <button
-              onClick={() => startCombat(activeTacticalChoice ?? undefined)}
+              onClick={startCurrentPhase}
               className="w-full min-h-[46px] py-3 rounded-xl bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 font-bold tracking-widest uppercase flex items-center justify-center gap-2 text-white shadow-lg shadow-cyan-600/30 transition text-xs sm:text-sm touch-manipulation cursor-pointer"
             >
-              <Crosshair size={18} /> INICIAR COMBATE RUPTURA 4.0
+              <Crosshair size={18} /> {phase.activityType ? 'INICIAR ATIVIDADE' : 'INICIAR COMBATE'}
             </button>
           </div>
         </div>
+      )}
+
+      {scene === 'ACTIVITY' && (
+        <CampaignActivityScene
+          phase={phase}
+          player={player}
+          onComplete={completeActivity}
+          onAbandon={abandonActivity}
+        />
       )}
 
       {/* 5. DYNAMIC COMBAT */}
@@ -651,6 +674,7 @@ export default function App() {
         <MultiverseMapScene
           player={player}
           completedPhases={completedPhases}
+          unlockedPhases={unlockedPhases}
           unlockedRealms={unlockedRealms}
           onSelectRealm={() => {}}
           onGoToCampaignPhase={handleGoToCampaignPhase}
@@ -687,6 +711,7 @@ export default function App() {
         <InventoryScene
           player={player}
           setPlayer={setPlayer}
+          completedPhases={completedPhases}
           onBackToNexus={() => setScene('NEXUS')}
         />
       )}
@@ -726,9 +751,11 @@ export default function App() {
         <RiftCoopScene
           player={player}
           setPlayer={setPlayer}
+          completedPhases={completedPhases}
           onBackToNexus={() => setScene('NEXUS')}
         />
       )}
+      </Suspense>
     </div>
   );
 }

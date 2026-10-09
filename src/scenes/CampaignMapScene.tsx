@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { Lock, CheckCircle2, Play, Map, ArrowLeft, Radio, Orbit, Sparkles, Skull, Award, ChevronRight, Layers } from 'lucide-react';
 import { AtmosphericCanvas } from '../components/AtmosphericCanvas';
 import { ProgressionHUD } from '../components/ProgressionHUD';
-import { PlayerState } from '../types/game';
-import { CAMPAIGN_CHAPTERS, CampaignChapter } from '../systems/CampaignChapters';
+import { CampaignActivityType, CampaignInvasionDefinition, EnemyVisualId, ExplorerId, PlayerState } from '../types/game';
+import { CAMPAIGN_CHAPTERS, CAMPAIGN_PHASES } from '../systems/CampaignChapters';
+import type { CampaignChapter } from '../systems/CampaignChapters';
+import { getExplorerProfile } from '../systems/ExplorerSystem';
 import { audio } from '../systems/AudioEngine';
 
 export interface CampaignPhase {
@@ -16,16 +18,26 @@ export interface CampaignPhase {
   atk: number;
   def: number;
   boss?: boolean;
+  maxPhases?: number;
+  bossType?: 'NORMAL' | 'GUARDIAN' | 'AVATAR' | 'ARCHITECT';
+  avatarType?: EnemyVisualId;
+  protagonistId?: ExplorerId;
+  activityType?: CampaignActivityType;
+  activityObjective?: string;
+  targetFrequency?: number;
+  activitySequence?: string[];
+  activityRounds?: number;
+  invasion?: CampaignInvasionDefinition;
 }
 
-// Flat export of all 10 phases for App.tsx compatibility
-export const CAMPAIGN_PHASES: CampaignPhase[] = CAMPAIGN_CHAPTERS.flatMap(c => c.phases);
+export { CAMPAIGN_PHASES } from '../systems/CampaignChapters';
 
 export const CampaignMapScene: React.FC<{
   player: PlayerState;
   unlockedPhases: string[];
   completedPhases: string[];
   onSelectPhase: (phase: CampaignPhase) => void;
+  onSelectExplorer: (id: ExplorerId, manual: boolean) => void;
   onMenuClick: () => void;
   onNexusClick?: () => void;
   onUnlockAllDebug?: () => void;
@@ -34,29 +46,50 @@ export const CampaignMapScene: React.FC<{
   unlockedPhases,
   completedPhases,
   onSelectPhase,
+  onSelectExplorer,
   onMenuClick,
   onNexusClick,
   onUnlockAllDebug,
 }) => {
   // Determine active chapter tab based on player progress
   const [selectedChapterIndex, setSelectedChapterIndex] = useState<number>(() => {
-    // Check if player has progressed to chapter 2 or 3
-    if (completedPhases.includes('fase-08')) return 2;
-    if (completedPhases.includes('fase-04')) return 1;
+    for (let index = CAMPAIGN_CHAPTERS.length - 1; index > 0; index -= 1) {
+      const previousChapter = CAMPAIGN_CHAPTERS[index - 1];
+      const finalPhaseId = previousChapter.phases.at(-1)?.id;
+      if (
+        (finalPhaseId && completedPhases.includes(finalPhaseId))
+        || player.legacyChapterMarkers?.includes(previousChapter.id)
+      ) return index;
+    }
     return 0;
   });
 
   const activeChapter = CAMPAIGN_CHAPTERS[selectedChapterIndex];
+  const protagonist = getExplorerProfile(
+    player.explorerSelectionManual ? player.activeExplorerId : activeChapter.protagonistId
+  );
 
   // Chapter unlocked status
   const isChapterUnlocked = (idx: number) => {
     if (idx === 0) return true;
-    if (idx === 1) return completedPhases.includes('fase-04');
-    if (idx === 2) return completedPhases.includes('fase-08');
-    return false;
+    const previousChapter = CAMPAIGN_CHAPTERS[idx - 1];
+    if (!previousChapter) return false;
+    const finalPhaseId = previousChapter.phases.at(-1)?.id;
+    return Boolean((finalPhaseId && completedPhases.includes(finalPhaseId))
+      || player.legacyChapterMarkers?.includes(previousChapter.id));
   };
 
-  const completedCount = completedPhases.length;
+  const availableExplorers = CAMPAIGN_CHAPTERS
+    .filter((_chapter, index) => isChapterUnlocked(index))
+    .map(chapter => getExplorerProfile(chapter.protagonistId));
+
+  const completedCount = CAMPAIGN_PHASES.filter(phase => completedPhases.includes(phase.id)).length;
+  const totalPhases = CAMPAIGN_PHASES.length;
+  const activityLabel = (phase: CampaignPhase) =>
+    phase.activityType === 'DECODE' ? 'SINTONIA'
+      : phase.activityType === 'DEFEND' ? 'DEFESA'
+      : phase.activityType === 'EXTRACT' ? 'EXTRAÇÃO'
+      : null;
 
   return (
     <div className="relative flex-1 min-h-0 overflow-y-auto bg-slate-950 p-3 sm:p-4 md:p-8 font-mono">
@@ -82,7 +115,7 @@ export const CampaignMapScene: React.FC<{
             )}
           </div>
           <span className="text-[11px] sm:text-xs tracking-wider sm:tracking-[.25em] text-cyan-300 flex items-center gap-1.5 sm:gap-2">
-            <Radio size={15} /> CAMPANHA NARRATIVA // 3 CAPÍTULOS
+            <Radio size={15} /> CAMPANHA NARRATIVA // {CAMPAIGN_CHAPTERS.length} CAPÍTULOS
           </span>
         </div>
 
@@ -99,14 +132,14 @@ export const CampaignMapScene: React.FC<{
           <div className="w-full max-w-sm mx-auto h-2 rounded-full bg-slate-800 mt-3 sm:mt-4 overflow-hidden border border-slate-700">
             <div
               className="h-full bg-gradient-to-r from-cyan-500 via-indigo-500 to-fuchsia-500 transition-all duration-500"
-              style={{ width: `${(completedCount / 10) * 100}%` }}
+              style={{ width: `${(completedCount / totalPhases) * 100}%` }}
             />
           </div>
           <div className="flex items-center justify-center gap-3 mt-2">
             <p className="text-xs text-slate-400 font-bold">
-              {completedCount} / 10 Fases Concluídas
+              {completedCount} / {totalPhases} Fases Concluídas
             </p>
-            {onUnlockAllDebug && completedCount < 10 && (
+            {onUnlockAllDebug && completedCount < totalPhases && (
               <button
                 onClick={onUnlockAllDebug}
                 className="text-[10px] text-cyan-400 hover:text-cyan-200 underline opacity-70 hover:opacity-100 transition touch-manipulation cursor-pointer"
@@ -133,6 +166,9 @@ export const CampaignMapScene: React.FC<{
                   if (unlocked) {
                     audio.playClick();
                     setSelectedChapterIndex(idx);
+                    if (!player.explorerSelectionManual) {
+                      onSelectExplorer(chap.protagonistId, false);
+                    }
                   } else {
                     audio.playDenied();
                   }
@@ -188,6 +224,25 @@ export const CampaignMapScene: React.FC<{
           <p className="text-xs text-slate-300 leading-relaxed font-light">
             {activeChapter.loreIntro}
           </p>
+          <p className="mt-2 text-[11px] text-cyan-300">
+            PERFIL ATIVO: <strong>{protagonist.name}</strong> · {protagonist.role} · {protagonist.combatStyle}
+          </p>
+          <label className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-slate-400">
+            <span>ESCOLHER EXPLORADOR</span>
+            <select
+              value={player.explorerSelectionManual ? player.activeExplorerId ?? activeChapter.protagonistId : 'chapter-default'}
+              onChange={event => {
+                const value = event.target.value;
+                onSelectExplorer(value === 'chapter-default' ? activeChapter.protagonistId : value as ExplorerId, value !== 'chapter-default');
+              }}
+              className="min-h-9 bg-slate-950 border border-slate-700 rounded-md px-2 text-cyan-200"
+            >
+              <option value="chapter-default">Padrão do capítulo: {getExplorerProfile(activeChapter.protagonistId).name}</option>
+              {availableExplorers.map(explorer => (
+                <option key={explorer.id} value={explorer.id}>{explorer.name} · {explorer.role}</option>
+              ))}
+            </select>
+          </label>
           <div className="mt-2.5 pt-2 border-t border-slate-800 flex flex-wrap items-center justify-between text-[11px] text-slate-400">
             <span>Recompensa de Conclusão do Capítulo:</span>
             <span className="text-amber-400 font-bold">
@@ -229,6 +284,11 @@ export const CampaignMapScene: React.FC<{
                           <Skull size={11} /> CHEFE DE CAPÍTULO
                         </span>
                       )}
+                      {ph.activityType && (
+                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-500/40 font-bold">
+                          {activityLabel(ph)}
+                        </span>
+                      )}
                     </div>
                     {done ? (
                       <CheckCircle2 className="text-emerald-400" size={18} />
@@ -245,11 +305,17 @@ export const CampaignMapScene: React.FC<{
                 </div>
 
                 <div className="pt-2 border-t border-slate-800/80 mt-2 flex items-center justify-between text-[10px] text-slate-400">
-                  <span>Ameaça: <strong className="text-slate-300">{ph.enemy}</strong></span>
-                  <div className="flex gap-2">
-                    <span className="text-cyan-400 font-bold">HP {ph.hp}</span>
-                    <span className="text-rose-400 font-bold">ATK {ph.atk}</span>
-                  </div>
+                  {ph.activityType ? (
+                    <span className="text-emerald-300">Objetivo: {ph.activityObjective}</span>
+                  ) : (
+                    <>
+                      <span>Ameaça: <strong className="text-slate-300">{ph.enemy}</strong></span>
+                      <div className="flex gap-2">
+                        <span className="text-cyan-400 font-bold">HP {ph.hp}</span>
+                        <span className="text-rose-400 font-bold">ATK {ph.atk}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </button>
             );
