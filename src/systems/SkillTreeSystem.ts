@@ -1,4 +1,4 @@
-import { PlayerState, StatModifiers, TalentBranch, TalentNode } from '../types/game';
+import { ExplorerId, PlayerState, StatModifiers, TalentBranch, TalentNode } from '../types/game';
 
 export const TALENT_TREE: readonly TalentNode[] = Object.freeze([
   // ----------------------------------------------------
@@ -208,6 +208,67 @@ export const TALENT_TREE: readonly TalentNode[] = Object.freeze([
     stats: { focus: 50, atk: 25, def: 20, critChance: 0.10, dodgeBonus: 0.10 },
     specialEffect: '+50 Foco, +25 ATK, +20 DEF, +10% Crítico e +10% Esquiva.',
   },
+  {
+    id: 'ka-elite-01',
+    branch: 'QUANTUM_ASSAULT',
+    name: 'Ressonância de Vanguarda',
+    description: 'Kael converte sequências de combo em um pulso estável de foco.',
+    tier: 2,
+    requiredLevel: 3,
+    requiredExplorerId: 'kael',
+    costPoints: 2,
+    stats: { atk: 5, focusRecovery: 3 },
+    specialEffect: 'Exclusivo de Kael: +5 ATK e +3 foco por turno.',
+  },
+  {
+    id: 'ly-elite-01',
+    branch: 'CONVERGENCE',
+    name: 'Triagem Nanítica',
+    description: 'Lyra transforma a leitura do campo em reparo eficiente do traje.',
+    tier: 2,
+    requiredLevel: 3,
+    requiredExplorerId: 'lyra',
+    costPoints: 2,
+    stats: { hp: 25, focusRecovery: 5 },
+    specialEffect: 'Exclusivo de Lyra: +25 HP e +5 foco por turno.',
+  },
+  {
+    id: 'ma-elite-01',
+    branch: 'MATRIX_GUARDIAN',
+    name: 'Muralha de Titânio',
+    description: 'Marcus mantém a formação mesmo sob impactos de chefe.',
+    tier: 2,
+    requiredLevel: 3,
+    requiredExplorerId: 'marcus',
+    costPoints: 2,
+    stats: { hp: 35, def: 5, damageReduction: 0.03 },
+    specialEffect: 'Exclusivo de Marcus: +35 HP, +5 DEF e +3% de redução.',
+  },
+  {
+    id: 'ki-elite-01',
+    branch: 'TEMPORAL_WARP',
+    name: 'Ponto Cego',
+    description: 'Kira usa deslocamentos curtos para expor a guarda do alvo.',
+    tier: 2,
+    requiredLevel: 3,
+    requiredExplorerId: 'kira',
+    costPoints: 2,
+    stats: { atk: 6, critChance: 0.04, dodgeBonus: 0.03 },
+    specialEffect: 'Exclusivo de Kira: +6 ATK, +4% crítico e +3% esquiva.',
+  },
+  {
+    id: 'se-elite-01',
+    branch: 'CONVERGENCE',
+    name: 'Cartografia de Retorno',
+    description: 'Sena recalcula rotas seguras e reduz o custo de manter a convergência.',
+    tier: 2,
+    requiredLevel: 3,
+    requiredExplorerId: 'sena',
+    costPoints: 2,
+    costMatrixCells: 1,
+    stats: { focus: 10, focusRecovery: 4, dodgeBonus: 0.03 },
+    specialEffect: 'Exclusivo de Sena: +10 foco, +4 por turno e +3% esquiva.',
+  },
 ]);
 
 const TALENT_MAP = new Map<string, TalentNode>(
@@ -239,6 +300,10 @@ export class SkillTreeSystem {
       return { canUnlock: false, reason: `Requer Nível ${talent.requiredLevel} do explorador.` };
     }
 
+    if (talent.requiredExplorerId && (player.activeExplorerId ?? 'kael') !== talent.requiredExplorerId) {
+      return { canUnlock: false, reason: `Requer ${talent.requiredExplorerId.toUpperCase()} como explorador ativo.` };
+    }
+
     const availablePoints = player.talentPoints ?? 0;
     if (availablePoints < talent.costPoints) {
       return { canUnlock: false, reason: `Pontos de talento insuficientes (${availablePoints}/${talent.costPoints}).` };
@@ -264,7 +329,10 @@ export class SkillTreeSystem {
   /**
    * Aggregates all stat modifiers from all allocated talents.
    */
-  static getAggregatedTalentStats(allocatedTalentIds?: string[]): Required<StatModifiers> {
+  static getAggregatedTalentStats(
+    allocatedTalentIds?: string[],
+    activeExplorerId: ExplorerId = 'kael'
+  ): Required<StatModifiers> {
     const total: Required<StatModifiers> = {
       hp: 0,
       atk: 0,
@@ -281,6 +349,7 @@ export class SkillTreeSystem {
     for (const id of allocatedTalentIds) {
       const node = TALENT_MAP.get(id);
       if (!node || !node.stats) continue;
+      if (node.requiredExplorerId && node.requiredExplorerId !== activeExplorerId) continue;
 
       if (node.stats.hp) total.hp += node.stats.hp;
       if (node.stats.atk) total.atk += node.stats.atk;

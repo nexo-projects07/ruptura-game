@@ -239,7 +239,7 @@ export const LoreArchivesScene: React.FC<{
             </p>
 
             <div className="pt-4 border-t border-slate-800 flex items-center justify-between text-[10px] text-slate-400">
-              <span>RUPTURA 4.0 • PROTOCOLO DE DESCRIPTOGRAFIA</span>
+              <span>PROTOCOLO DE DESCRIPTOGRAFIA</span>
               <span>AUTORIZADO: EXPLORADOR KAEL</span>
             </div>
           </div>

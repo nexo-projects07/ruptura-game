@@ -17,11 +17,15 @@ import {
 } from 'lucide-react';
 import { AtmosphericCanvas } from '../components/AtmosphericCanvas';
 import { ProgressionHUD } from '../components/ProgressionHUD';
-import { KaelAvatar } from '../components/KaelAvatar';
+import { ExplorerAvatar } from '../components/ExplorerAvatar';
 import { FragmentadoAvatar, EnemyAnimState } from '../components/FragmentadoAvatar';
-import { PlayerState, EnemyState, EnemyIntent } from '../types/game';
+import { PlayerState, EnemyState, EnemyIntent, CompanionRole } from '../types/game';
 import { audio } from '../systems/AudioEngine';
 import { StatCalculator } from '../systems/StatCalculator';
+import { COMPANION_ABILITIES, getNextCompanionRole } from '../systems/CompanionSystem';
+import { getUniqueBossIntent } from '../systems/BossBehaviorSystem';
+import { calculateDamageAgainstDefense } from '../systems/DamageCalculator';
+import { getExplorerProfile } from '../systems/ExplorerSystem';
 import { TacticalChoice } from '../components/BossConfrontationModal';
 
 interface FloatingMessage {
@@ -53,6 +57,7 @@ export const CombatScene: React.FC<{
   realm = 'realm-alpha',
 }) => {
   const stats = StatCalculator.calculate(player);
+  const explorer = getExplorerProfile(player.activeExplorerId);
   const [turn, setTurn] = useState<number>(1);
   const [focus, setFocus] = useState<number>(() => {
     if (tacticalChoice?.effectType === 'FOCUS_MAX') return 100;
@@ -68,7 +73,7 @@ export const CombatScene: React.FC<{
   const [cronoCooldown, setCronoCooldown] = useState<number>(0);
   const [pulseCooldown, setPulseCooldown] = useState<number>(0);
   const [companionCooldown, setCompanionCooldown] = useState<number>(0);
-  const [selectedCompanion, setSelectedCompanion] = useState<'LYRA' | 'MARCUS'>('LYRA');
+  const [selectedCompanion, setSelectedCompanion] = useState<CompanionRole>(player.activeCompanion ?? 'LYRA_TACTICIAN');
 
   // Boss & Enemy Phase State
   const [enemyPhase, setEnemyPhase] = useState<number>(enemy.phase ?? 1);
@@ -100,7 +105,7 @@ export const CombatScene: React.FC<{
   });
 
   const [combatLog, setCombatLog] = useState<string[]>(() => {
-    const logs = [`Sistemas táticos de combate RUPTURA 4.0 engajados contra ${enemy.name}.`];
+    const logs = [`Sistemas táticos engajados contra ${enemy.name}.`];
     if (tacticalChoice) {
       logs.unshift(`⚡ VANTAGEM TÁTICA ATIVA: ${tacticalChoice.label} (${tacticalChoice.buffName})`);
     }
@@ -153,6 +158,9 @@ export const CombatScene: React.FC<{
         power: Math.floor(enemy.atk * 0.5),
       };
     }
+
+    const uniqueIntent = getUniqueBossIntent(enemy, currentTurn, currentPhase);
+    if (uniqueIntent) return uniqueIntent;
 
     const isBoss = enemyMaxPhases > 1;
     const r = Math.random();
@@ -223,11 +231,14 @@ export const CombatScene: React.FC<{
     }, 1200);
   };
 
+  const calculateEnemyDamage = (rawDamage: number, armorPenetration = 0) =>
+    calculateDamageAgainstDefense(rawDamage, enemy.def ?? 0, armorPenetration);
+
   // Turn resolution for enemy
-  const handleEnemyTurn = (currentKaelHp: number, defending: boolean, dodging: boolean) => {
+  const handleEnemyTurn = (currentKaelHp: number, defending: boolean, dodging: boolean, forceStagger = false, forceCronoshield = false) => {
     setIsEnemyTurn(true);
 
-    if (isEnemyStaggered) {
+    if (isEnemyStaggered || forceStagger) {
       setCombatLog(prev => [`${enemy.name} está ATORDOADO e não pôde agir neste turno!`, ...prev]);
       setIsEnemyStaggered(false);
       setEnemyStagger(0);
@@ -254,14 +265,14 @@ export const CombatScene: React.FC<{
           audio.playDodge();
           showFloating('ESQUIVA PERFEITA!', 'dodge', 'kael');
           setCombatLog(prev => [
-            `⚡ KAEL executou ESQUIVA PERFEITA contra ${enemy.name}! Nenhum dano sofrido.`,
+            `⚡ ${explorer.name.toUpperCase()} executou ESQUIVA PERFEITA contra ${enemy.name}! Nenhum dano sofrido.`,
             ...prev,
           ]);
 
           // Counter-attack on perfect dodge
           const counterCrit = Math.random() < stats.critChance;
           const counterMultiplier = counterCrit ? 1.5 : 1.0;
-          const counterDmg = Math.floor(stats.atk * 0.9 * counterMultiplier);
+          const counterDmg = calculateEnemyDamage(Math.floor(stats.atk * 0.9 * counterMultiplier), 0.25);
           audio.playLaser();
           showFloating(`CONTRA-ATAQUE: -${counterDmg}${counterCrit ? ' (CRÍTICO!)' : ''}`, 'crit', 'enemy');
           setEnemy(prev => {
@@ -272,7 +283,7 @@ export const CombatScene: React.FC<{
             return { ...prev, hp: nextHp };
           });
           setCombatLog(prev => [
-            `⚔️ CONTRA-ATAQUE IMEDIATO! Kael desfere contra-golpe de ${counterDmg} de dano!`,
+            `⚔️ CONTRA-ATAQUE IMEDIATO! ${explorer.name} desfere ${counterDmg} de dano!`,
             ...prev,
           ]);
 
@@ -289,7 +300,7 @@ export const CombatScene: React.FC<{
       const passiveAbsorption = Math.floor(baseMitigated * stats.damageReductionPercent);
       let finalDamage = Math.max(1, baseMitigated - passiveAbsorption);
 
-      if (cronoshieldActive) {
+      if (cronoshieldActive || forceCronoshield) {
         audio.playShield();
         const absorbed = Math.floor(finalDamage * 0.7);
         finalDamage = Math.max(1, finalDamage - absorbed);
@@ -310,7 +321,7 @@ export const CombatScene: React.FC<{
         ]);
       } else {
         showFloating(`-${finalDamage}`, 'damage', 'kael');
-        setCombatLog(prev => [`${enemy.name} atingiu KAEL com ${finalDamage} de dano.`, ...prev]);
+        setCombatLog(prev => [`${enemy.name} atingiu ${explorer.name.toUpperCase()} com ${finalDamage} de dano.`, ...prev]);
         setCombo(0);
       }
 
@@ -442,7 +453,7 @@ export const CombatScene: React.FC<{
     const comboBonus = 1 + (nextCombo - 1) * 0.12;
     const isCrit = Math.random() < stats.critChance;
     const critMultiplier = isCrit ? 1.6 : 1.0;
-    const baseDamage = Math.floor(stats.atk * 0.85 * comboBonus * critMultiplier);
+    const baseDamage = calculateEnemyDamage(Math.floor(stats.atk * 0.85 * comboBonus * critMultiplier));
 
     // Stagger build
     const nextStagger = Math.min(100, enemyStagger + 20);
@@ -465,7 +476,7 @@ export const CombatScene: React.FC<{
       setTimeout(() => setEnemyAnim('idle'), 350);
 
       setCombatLog(prev => [
-        `Kael desferiu Corte Ágil causando ${baseDamage} de dano${isCrit ? ' [CRÍTICO!]' : ''}${
+        `${explorer.name} desferiu Corte Ágil causando ${baseDamage} de dano${isCrit ? ' [CRÍTICO!]' : ''}${
           interrupted ? ' e interrompeu a canalização!' : ''
         }.`,
         ...prev,
@@ -493,7 +504,7 @@ export const CombatScene: React.FC<{
 
     const isCrit = Math.random() < stats.critChance;
     const critMultiplier = isCrit ? 1.7 : 1.0;
-    const heavyDamage = Math.floor(stats.atk * 1.5 * critMultiplier);
+    const heavyDamage = calculateEnemyDamage(Math.floor(stats.atk * 1.5 * critMultiplier));
 
     const nextStagger = Math.min(100, enemyStagger + 45);
     setEnemyStagger(nextStagger);
@@ -508,7 +519,7 @@ export const CombatScene: React.FC<{
       setTimeout(() => setEnemyAnim('idle'), 400);
 
       setCombatLog(prev => [
-        `Kael desferiu IMPACTO PESADO causando ${heavyDamage} de dano${isCrit ? ' [CRÍTICO!]' : ''}!`,
+        `${explorer.name} desferiu IMPACTO PESADO causando ${heavyDamage} de dano${isCrit ? ' [CRÍTICO!]' : ''}!`,
         ...prev,
       ]);
 
@@ -533,7 +544,7 @@ export const CombatScene: React.FC<{
     setKaelAnim('defend');
     setFocus(f => Math.min(100, f + 25));
     showFloating('+25 FOCO & ESCUDO ATIVO', 'heal', 'kael');
-    setCombatLog(prev => [`Kael ativou Matriz Defensiva. Danos absorvidos em 65% neste turno.`, ...prev]);
+    setCombatLog(prev => [`${explorer.name} ativou a Matriz Defensiva. Danos absorvidos em 65% neste turno.`, ...prev]);
 
     setTimeout(() => {
       handleEnemyTurn(player.hp, true, false);
@@ -547,7 +558,7 @@ export const CombatScene: React.FC<{
     setIsDodging(true);
     setFocus(f => Math.min(100, f + 10));
     showFloating('ESQUIVA PREPARADA', 'dodge', 'kael');
-    setCombatLog(prev => [`Kael calibrou os propulsores para Esquiva Perfeita contra o golpe inimigo.`, ...prev]);
+    setCombatLog(prev => [`${explorer.name} calibrou os propulsores para a Esquiva Perfeita.`, ...prev]);
 
     setTimeout(() => {
       handleEnemyTurn(player.hp, false, true);
@@ -563,7 +574,7 @@ export const CombatScene: React.FC<{
     setQuantumCooldown(2);
     setKaelAnim('attack');
 
-    const skillDamage = Math.floor(stats.atk * 2.1);
+    const skillDamage = calculateEnemyDamage(Math.floor(stats.atk * 2.1), 0.75);
     showFloating('LÂMINA QUÂNTICA!', 'crit', 'kael');
 
     setTimeout(() => {
@@ -575,7 +586,7 @@ export const CombatScene: React.FC<{
       setTimeout(() => setEnemyAnim('idle'), 350);
 
       setCombatLog(prev => [
-        `⚡ HABILIDADE: Lâmina Quântica perfurou a integridade dimensional de ${enemy.name} causando ${skillDamage} de dano!`,
+        `⚡ HABILIDADE: ${explorer.name} perfurou a integridade de ${enemy.name} causando ${skillDamage} de dano!`,
         ...prev,
       ]);
 
@@ -626,8 +637,47 @@ export const CombatScene: React.FC<{
     setFocus(0);
     setKaelAnim('attack');
 
-    const ultimateDamage = Math.floor(stats.atk * 3.4);
-    showFloating('🔥 OVERDRIVE TOTAL DA MATRIZ!', 'crit', 'kael');
+    if (explorer.id === 'lyra') {
+      const healAmount = Math.floor(stats.maxHp * 0.35);
+      setPlayer(prev => ({ ...prev, hp: Math.min(stats.maxHp, prev.hp + healAmount) }));
+      setFocus(20);
+      showFloating(`${explorer.ultimateName}: +${healAmount} HP`, 'heal', 'kael');
+      setCombatLog(prev => [`${explorer.name} liberou ${explorer.ultimateName} e restaurou ${healAmount} HP.`, ...prev]);
+      setTimeout(() => handleEnemyTurn(player.hp, false, false), 450);
+      return;
+    }
+
+    if (explorer.id === 'marcus') {
+      setEnemyStagger(Math.max(enemyStagger, 65));
+      showFloating(`${explorer.ultimateName}: ESCUDO ATIVO`, 'heal', 'kael');
+      setCombatLog(prev => [`${explorer.name} ativou ${explorer.ultimateName}; o próximo impacto será amplamente absorvido.`, ...prev]);
+      setTimeout(() => handleEnemyTurn(player.hp, false, false, false, true), 450);
+      return;
+    }
+
+    if (explorer.id === 'sena') {
+      const damage = calculateEnemyDamage(Math.floor(stats.atk * 1.9), 0.35);
+      const nextEnemyHp = Math.max(0, enemy.hp - damage);
+      setEnemy(prev => ({ ...prev, hp: nextEnemyHp }));
+      setEnemyStagger(100);
+      setIsEnemyStaggered(true);
+      setEnemyAnim('stagger');
+      showFloating(`${explorer.ultimateName}: -${damage}`, 'crit', 'enemy');
+      setCombatLog(prev => [`${explorer.name} ativou ${explorer.ultimateName}, rompeu a defesa e interrompeu ${enemy.name}.`, ...prev]);
+      if (nextEnemyHp <= 0) {
+        checkVictoryOrNextPhase(nextEnemyHp);
+      } else {
+        setTimeout(() => handleEnemyTurn(player.hp, false, false, true), 450);
+      }
+      return;
+    }
+
+    const isKira = explorer.id === 'kira';
+    const ultimateDamage = calculateEnemyDamage(
+      Math.floor(stats.atk * (isKira ? 2.8 : 3.4)),
+      isKira ? 0.95 : 0.9
+    );
+    showFloating(`${explorer.ultimateName}!`, 'crit', 'kael');
 
     setTimeout(() => {
       setKaelAnim('idle');
@@ -638,7 +688,7 @@ export const CombatScene: React.FC<{
       setTimeout(() => setEnemyAnim('idle'), 450);
 
       setCombatLog(prev => [
-        `💥 SUPREMA: Kael desencadeou o OVERDRIVE DA MATRIZ causando ${ultimateDamage} de dano cósmico puro!`,
+        `SUPREMA: ${explorer.name} desencadeou ${explorer.ultimateName}, causando ${ultimateDamage} de dano.`,
         ...prev,
       ]);
 
@@ -650,13 +700,13 @@ export const CombatScene: React.FC<{
     }, 400);
   };
 
-  // 9. PROTOCOLO DE SUPORTE ALIADO (LYRA / MARCUS)
+  // 9. PROTOCOLO DE SUPORTE ALIADO
   const handleCompanionSupport = () => {
     if (isEnemyTurn || companionCooldown > 0) return;
     audio.playCompanionSupport();
-    setCompanionCooldown(3);
+    setCompanionCooldown(COMPANION_ABILITIES[selectedCompanion].cooldown);
 
-    if (selectedCompanion === 'LYRA') {
+    if (selectedCompanion === 'LYRA_TACTICIAN') {
       const healAmt = 45;
       setPlayer(p => ({ ...p, hp: Math.min(stats.maxHp, p.hp + healAmt) }));
       setFocus(f => Math.min(100, f + 30));
@@ -665,15 +715,42 @@ export const CombatScene: React.FC<{
         `📡 SUPORTE TÁTICO: Lyra injetou nanites restauradores (+${healAmt} HP e +30 Foco)!`,
         ...prev,
       ]);
-    } else {
+    } else if (selectedCompanion === 'MARCUS_JUGGERNAUT') {
       const staggerAmt = 40;
-      setEnemyStagger(s => Math.min(100, s + staggerAmt));
+      const nextStagger = Math.min(100, enemyStagger + staggerAmt);
+      setEnemyStagger(nextStagger);
+      if (nextStagger >= 100) {
+        setIsEnemyStaggered(true);
+        setEnemyAnim('stagger');
+      }
       showFloating(`+${staggerAmt}% POSTURA QUEBRADA!`, 'stagger', 'enemy');
       setCombatLog(prev => [
-        `🛡️ SUPORTE TÁTICO: Marcus disparou salva balística pesada (+${staggerAmt}% de Quebra de Postura)!`,
+        `SUPORTE TÁTICO: Marcus disparou salva balística pesada (+${staggerAmt}% de quebra de postura)!`,
         ...prev,
       ]);
+    } else {
+      const isCrit = Math.random() < stats.critChance;
+      const damage = calculateEnemyDamage(Math.floor(stats.atk * (isCrit ? 1.8 : 1.35)), 0.4);
+      const nextEnemyHp = Math.max(0, enemy.hp - damage);
+      setEnemy(prev => ({ ...prev, hp: nextEnemyHp }));
+      showFloating(`-${damage}${isCrit ? ' (CRÍTICO!)' : ''}`, isCrit ? 'crit' : 'damage', 'enemy');
+      setCombatLog(prev => [
+        `Kira atravessou a guarda de ${enemy.name} com a Lâmina do Vazio (${damage} de dano${isCrit ? ', crítico' : ''}).`,
+        ...prev,
+      ]);
+      if (nextEnemyHp <= 0) {
+        checkVictoryOrNextPhase(nextEnemyHp);
+        return;
+      }
     }
+
+    setTimeout(() => handleEnemyTurn(player.hp, false, false), 450);
+  };
+
+  const cycleCompanion = () => {
+    const nextRole = getNextCompanionRole(selectedCompanion);
+    setSelectedCompanion(nextRole);
+    setPlayer(prev => ({ ...prev, activeCompanion: nextRole }));
   };
 
   return (
@@ -722,11 +799,11 @@ export const CombatScene: React.FC<{
       <div className="relative z-10 flex-1 flex flex-col justify-between px-2 sm:px-4 md:px-6 py-2 max-w-5xl mx-auto w-full overflow-y-auto min-h-0">
         {/* Top Health and Status Bars */}
         <div className="grid grid-cols-2 gap-2 sm:gap-4 md:gap-6 bg-slate-950/85 p-2 sm:p-3 md:p-4 rounded-xl border border-cyan-500/30 backdrop-blur-md shadow-xl shrink-0">
-          {/* Kael Info */}
+          {/* Active Explorer Info */}
           <div>
             <div className="flex justify-between items-center mb-1">
               <span className="font-bold text-cyan-300 text-[11px] sm:text-xs md:text-sm font-mono truncate">
-                {player.name} (LVL {player.level})
+                {explorer.name} (LVL {player.level})
               </span>
               <span className="text-[10px] sm:text-xs font-mono text-slate-300">
                 {player.hp}/{stats.maxHp} HP
@@ -798,9 +875,10 @@ export const CombatScene: React.FC<{
           </div>
 
           <div className="w-full flex items-center justify-between px-2 sm:px-6 md:px-16 min-h-[140px] sm:min-h-[170px] md:min-h-[190px]">
-            {/* Kael Stance */}
+            {/* Active Explorer Stance */}
             <div className="flex flex-col items-center scale-90 sm:scale-100 transition-transform">
-              <KaelAvatar
+              <ExplorerAvatar
+                explorerId={player.activeExplorerId}
                 state={kaelAnim}
                 skinId={player.currentSkin || 'skin-default'}
                 equippedGear={player.equippedGear}
@@ -956,9 +1034,9 @@ export const CombatScene: React.FC<{
               >
                 <div className="flex items-center gap-0.5 sm:gap-1">
                   <Sparkles className="w-2.5 sm:w-3 h-2.5 sm:h-3" />
-                  <span>OVERDRIVE</span>
+                  <span>{explorer.ultimateName.toUpperCase()}</span>
                 </div>
-                <span className="text-[8px] sm:text-[9px]">100% FOCO</span>
+                <span className="text-[8px] sm:text-[9px]" title={explorer.ultimateDescription}>100% FOCO</span>
               </button>
             </div>
 
@@ -968,11 +1046,11 @@ export const CombatScene: React.FC<{
                 <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
                 <span className="text-slate-400">SUPORTE ALIADO:</span>
                 <button
-                  onClick={() => setSelectedCompanion(selectedCompanion === 'LYRA' ? 'MARCUS' : 'LYRA')}
+                  onClick={cycleCompanion}
                   className="font-bold text-emerald-300 hover:text-white transition underline cursor-pointer"
-                  title="Clique para alternar aliado de suporte"
+                  title="Alterna Lyra, Marcus e Kira; a escolha é salva no perfil"
                 >
-                  {selectedCompanion === 'LYRA' ? 'LYRA (+45 HP)' : 'MARCUS (+40% STAGGER)'}
+                  {COMPANION_ABILITIES[selectedCompanion].name.toUpperCase()} ({COMPANION_ABILITIES[selectedCompanion].description})
                 </button>
               </div>
               <button

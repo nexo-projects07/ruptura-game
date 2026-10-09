@@ -1,6 +1,19 @@
 import assert from 'node:assert';
 import { ItemRegistry, ITEM_CATALOG } from '../src/systems/ItemRegistry.ts';
 import { StatCalculator, STAT_LIMITS, sanitizeNumber } from '../src/systems/StatCalculator.ts';
+import { SkinRegistry } from '../src/systems/SkinSystem.ts';
+import { SecretBossSystem } from '../src/systems/SecretBossSystem.ts';
+import { grantCampaignPhaseRewards, grantSecretBossRewards, inferClaimedChapterRewards, inferLegacyChapterMarkers, getLegacyContinuationPhaseIds, getNextCampaignPhaseId } from '../src/systems/CampaignProgressionSystem.ts';
+import { CAMPAIGN_CHAPTERS } from '../src/systems/CampaignChapters.ts';
+import { COMPANION_ABILITIES, COMPANION_ROLES, getNextCompanionRole } from '../src/systems/CompanionSystem.ts';
+import { grantExplorationPointReward, grantRiftRaidReward, isRiftRaidUnlocked } from '../src/systems/ProgressionRewardsSystem.ts';
+import { getUniqueBossIntent } from '../src/systems/BossBehaviorSystem.ts';
+import { calculateDamageAgainstDefense } from '../src/systems/DamageCalculator.ts';
+import { EXPLORERS } from '../src/systems/ExplorerSystem.ts';
+import { calculateUpgradeCost } from '../src/systems/UpgradeSystem.ts';
+import { advanceExtraction, isFrequencyDecoded, resolveRelayDefense } from '../src/systems/CampaignActivitySystem.ts';
+import { getInvasionConsequence, getInvasionConsequenceForPhase, getInvasionThreatMultiplier, resolveCampaignInvasion } from '../src/systems/CampaignInvasionSystem.ts';
+import { SkillTreeSystem } from '../src/systems/SkillTreeSystem.ts';
 
 console.log('=== INICIANDO TESTES DO MÓDULO A (RUPTURA 3.0) ===\n');
 
@@ -108,6 +121,23 @@ assert.strictEqual(statsWithGear.damageReductionPercent, 0.04, `Damage reduction
 console.log('✓ Modificadores agregados com sucesso nos 4 slots!\n');
 
 // ----------------------------------------------------
+// TESTE EXTRA: Passivos dos exploradores
+// ----------------------------------------------------
+console.log('TESTE EXTRA: Passivos dos exploradores...');
+const explorerStats = Object.values(EXPLORERS).map(explorer => StatCalculator.calculate({ ...basePlayer, activeExplorerId: explorer.id }));
+assert.strictEqual(new Set(explorerStats.map(stats => `${stats.maxHp}:${stats.atk}:${stats.def}:${stats.baseFocus}:${stats.critChance}:${stats.focusRecovery}`)).size, 5, 'Cada explorador deve alterar o perfil de combate');
+assert.strictEqual(StatCalculator.calculate(basePlayer).atk, 20, 'Save antigo sem explorador deve manter os atributos base');
+console.log('✓ Os cinco exploradores têm passivos distintos e saves antigos mantêm Kael.\n');
+
+console.log('TESTE EXTRA: Talentos exclusivos respeitam o explorador ativo...');
+const lyraTalentPlayer = { ...basePlayer, level: 3, talentPoints: 2, activeExplorerId: 'lyra' };
+assert.ok(SkillTreeSystem.canUnlockTalent(lyraTalentPlayer, 'ly-elite-01').canUnlock);
+assert.ok(!SkillTreeSystem.canUnlockTalent({ ...lyraTalentPlayer, activeExplorerId: 'kael' }, 'ly-elite-01').canUnlock);
+assert.strictEqual(SkillTreeSystem.getAggregatedTalentStats(['ly-elite-01'], 'kael').focusRecovery, 0);
+assert.strictEqual(SkillTreeSystem.getAggregatedTalentStats(['ly-elite-01'], 'lyra').focusRecovery, 5);
+console.log('✓ Talentos especializados só compram e aplicam no perfil correto.\n');
+
+// ----------------------------------------------------
 // TESTE 6: Proteção contra NaN, Infinity e Modificadores Inválidos
 // ----------------------------------------------------
 console.log('TESTE 6: Testando sanitização de NaN, Infinity e limites máximos...');
@@ -154,14 +184,167 @@ assert.strictEqual(JSON.stringify(playerWithGear), snapshotPlayerBefore, 'compar
 console.log('✓ Funções são estritamente puras e imutáveis.\n');
 
 // ----------------------------------------------------
-// TESTE 8: Compatibilidade com o Schema Antigo e as 10 Fases
+// TESTE 8: Desbloqueio de skins por progresso de campanha
 // ----------------------------------------------------
-console.log('TESTE 8: Verificando retrocompatibilidade de tipos e campanha...');
+console.log('TESTE 8: Verificando desbloqueios de skins por fase concluída...');
+const skinsBeforePhaseTwo = SkinRegistry.getUnlockedSkins([], 1, 0, [], []);
+const skinsAfterPhaseTwo = SkinRegistry.getUnlockedSkins(['fase-02'], 1, 0, [], []);
+assert.ok(!skinsBeforePhaseTwo.includes('skin-explorer'), 'Skin de explorador deve permanecer bloqueada antes da Fase 02');
+assert.ok(skinsAfterPhaseTwo.includes('skin-explorer'), 'Concluir a Fase 02 deve desbloquear a skin de explorador');
+console.log('✓ Desbloqueio de skin respeita a fase concluída.\n');
+
+// ----------------------------------------------------
+// TESTE 9: Recompensas únicas de campanha e chefes
+// ----------------------------------------------------
+console.log('TESTE 9: Verificando recompensas de primeiro clear e replays...');
+const rewardPlayer = {
+  ...basePlayer,
+  credits: 0,
+  fragments: 0,
+  matrixCells: 0,
+  inventory: [],
+  unlockedSkins: [],
+  defeatedSecretBosses: [],
+};
+const chapterClear = grantCampaignPhaseRewards(rewardPlayer, 'fase-16', [], 1000);
+assert.strictEqual(chapterClear.credits, 250, 'Primeiro clear da Fase 04 deve incluir recompensa do capítulo');
+assert.strictEqual(chapterClear.matrixCells, 4, 'Primeiro clear da Fase 04 deve incluir células do capítulo');
+assert.ok(chapterClear.inventory.some(item => item.itemId === 'wpn-02'), 'Recompensa do capítulo deve conceder o item configurado');
+assert.ok(chapterClear.unlockedSkins.includes('skin-tactical'), 'Recompensa do capítulo deve desbloquear a skin configurada');
+assert.ok(chapterClear.claimedChapterRewards.includes('chapter-01'), 'Recompensa do capítulo deve ser marcada como resgatada');
+assert.strictEqual(grantCampaignPhaseRewards(chapterClear, 'fase-16', ['fase-16'], 2000), chapterClear, 'Repetir fase concluída não deve conceder recompensas');
+assert.deepStrictEqual(inferClaimedChapterRewards(['fase-04', 'fase-08']), ['chapter-01', 'chapter-02'], 'Saves antigos devem migrar recompensas de capítulos já concluídos');
+assert.deepStrictEqual(getLegacyContinuationPhaseIds(['fase-04', 'fase-08']), ['fase-11', 'fase-17'], 'Saves antigos devem liberar a continuação de cada capítulo concluído');
+assert.deepStrictEqual(inferLegacyChapterMarkers(['fase-04', 'fase-08']), ['chapter-01', 'chapter-02']);
+assert.strictEqual(getNextCampaignPhaseId('fase-04'), 'fase-11');
+assert.strictEqual(getNextCampaignPhaseId('fase-16'), 'fase-05');
+assert.strictEqual(getNextCampaignPhaseId('fase-08'), 'fase-17');
+assert.strictEqual(getNextCampaignPhaseId('fase-22'), 'fase-09');
+assert.strictEqual(getNextCampaignPhaseId('fase-30'), 'fase-31');
+
+const secretBoss = SecretBossSystem.getBossById('sb-cartografo');
+assert.ok(secretBoss, 'Chefe secreto de teste deve existir');
+const bossClear = grantSecretBossRewards(rewardPlayer, secretBoss, 3000);
+assert.ok(bossClear.defeatedSecretBosses.includes(secretBoss.id), 'Vitória deve registrar chefe derrotado');
+assert.strictEqual(grantSecretBossRewards(bossClear, secretBoss, 4000), bossClear, 'Reconfrontar chefe derrotado não deve duplicar recompensas');
+console.log('✓ Recompensas de capítulo e chefe são concedidas uma única vez.\n');
+
+// ----------------------------------------------------
+// TESTE 10: Estrutura da campanha expandida
+// ----------------------------------------------------
+console.log('TESTE 10: Verificando cinco capítulos e 50 encontros jogáveis...');
+assert.strictEqual(CAMPAIGN_CHAPTERS.length, 5, 'Campanha deve conter cinco capítulos');
+assert.ok(CAMPAIGN_CHAPTERS.every(chapter => chapter.phases.length === 10), 'Cada capítulo deve conter dez fases');
+const campaignPhases = CAMPAIGN_CHAPTERS.flatMap(chapter => chapter.phases);
+assert.strictEqual(campaignPhases.length, 50, 'Campanha deve conter 50 fases');
+assert.strictEqual(new Set(campaignPhases.map(phase => phase.id)).size, 50, 'IDs das 50 fases devem ser únicos');
+assert.ok(campaignPhases.every(phase => phase.title && phase.summary && phase.location && phase.enemy && phase.hp > 0 && phase.atk > 0), 'Cada fase deve ter conteúdo e atributos de combate válidos');
+assert.ok(CAMPAIGN_CHAPTERS.every(chapter => chapter.phases.at(-1)?.boss), 'Cada capítulo deve terminar com um chefe');
+const activityPhases = campaignPhases.filter(phase => phase.activityType);
+assert.ok(activityPhases.filter(phase => phase.activityType === 'DECODE').length >= 4);
+assert.ok(activityPhases.filter(phase => phase.activityType === 'DEFEND').length >= 3);
+assert.ok(activityPhases.filter(phase => phase.activityType === 'EXTRACT').length >= 4);
+assert.ok(activityPhases.every(phase => phase.activityObjective && (
+  phase.activityType === 'DECODE' ? phase.targetFrequency !== undefined
+    : phase.activityType === 'DEFEND' ? phase.activityRounds !== undefined
+    : phase.activitySequence?.length
+)), 'Cada atividade deve declarar objetivo e parâmetros de conclusão');
+assert.ok(new Set(activityPhases.map(phase => Number(phase.id.replace('fase-', '')).toString().slice(0, 1))).size >= 4, 'Atividades devem aparecer em diferentes partes da campanha');
+const farolInvasion = campaignPhases.find(phase => phase.id === 'fase-38').invasion;
+const breachedPlayer = resolveCampaignInvasion(rewardPlayer, farolInvasion, 'BREACHED');
+assert.strictEqual(getInvasionThreatMultiplier(breachedPlayer, 'fase-39'), 1.2);
+assert.strictEqual(getInvasionConsequence(breachedPlayer, farolInvasion), farolInvasion.breachedConsequence);
+assert.strictEqual(getInvasionConsequenceForPhase(breachedPlayer, 'fase-39'), farolInvasion.breachedConsequence);
+const recoveredPlayer = resolveCampaignInvasion(breachedPlayer, farolInvasion, 'SECURED');
+assert.strictEqual(getInvasionThreatMultiplier(recoveredPlayer, 'fase-39'), 0.85, 'Sucesso em nova tentativa deve recuperar a região');
+assert.strictEqual(resolveCampaignInvasion(recoveredPlayer, farolInvasion, 'BREACHED'), recoveredPlayer, 'Replays não devem desfazer uma invasão recuperada');
+assert.strictEqual(getInvasionThreatMultiplier(rewardPlayer, 'fase-39'), 1, 'Fase seguinte não deve ser alterada antes de resolver a invasão');
+assert.deepStrictEqual(CAMPAIGN_CHAPTERS.map(chapter => chapter.protagonistId), ['kael', 'lyra', 'marcus', 'kira', 'sena']);
+const mainBossVisuals = [
+  ['fase-16', 'containment_core'],
+  ['fase-35', 'commander_vertex'],
+  ['fase-40', 'rift_admiral'],
+  ['fase-45', 'collapse_herald'],
+  ['fase-50', 'convergence_sovereign'],
+];
+mainBossVisuals.forEach(([phaseId, visualId]) => {
+  assert.strictEqual(campaignPhases.find(phase => phase.id === phaseId)?.avatarType, visualId);
+});
+console.log('✓ Cinco capítulos, 50 encontros, IDs únicos e chefes finais definidos.\n');
+
+// TESTE 11: Habilidades distintas de suporte
+// ----------------------------------------------------
+console.log('TESTE 11: Verificando habilidades distintas de Lyra, Marcus e Kira...');
+assert.deepStrictEqual(COMPANION_ROLES, ['LYRA_TACTICIAN', 'MARCUS_JUGGERNAUT', 'KIRA_VOID']);
+assert.strictEqual(new Set(COMPANION_ROLES.map(role => COMPANION_ABILITIES[role].title)).size, 3, 'Cada companheiro deve ter uma habilidade própria');
+assert.strictEqual(getNextCompanionRole('LYRA_TACTICIAN'), 'MARCUS_JUGGERNAUT');
+assert.strictEqual(getNextCompanionRole('MARCUS_JUGGERNAUT'), 'KIRA_VOID');
+assert.strictEqual(getNextCompanionRole('KIRA_VOID'), 'LYRA_TACTICIAN');
+console.log('✓ Companheiros têm habilidades distintas e seleção cíclica.\n');
+
+// TESTE 12: Pagamentos únicos de exploração e incursões
+// ----------------------------------------------------
+console.log('TESTE 12: Verificando proteção contra farm de recompensas...');
+const explorationClear = grantExplorationPointReward(rewardPlayer, 'poi-1', { credits: 80, fragments: 2, matrixCells: 1 });
+assert.strictEqual(explorationClear.credits, 80);
+assert.strictEqual(grantExplorationPointReward(explorationClear, 'poi-1', { credits: 80, fragments: 2, matrixCells: 1 }), explorationClear);
+const testRaid = {
+  id: 'raid-test', title: 'Teste', threatRank: 'ALTA', bossName: 'Boss de Teste',
+  bossHp: 100, bossAtk: 10, bossDef: 5, rewardCredits: 100,
+  rewardFragments: 2, rewardMatrixCells: 1, rewardAetherCores: 1,
+  realmId: 'realm-alpha', description: 'Teste', mechanicWarning: 'Teste',
+};
+const raidClear = grantRiftRaidReward(rewardPlayer, testRaid);
+assert.strictEqual(raidClear.credits, 100);
+assert.ok(raidClear.completedRiftRaids.includes('raid-test'));
+assert.strictEqual(grantRiftRaidReward(raidClear, testRaid), raidClear, 'Rejogar raid não deve repetir pagamentos');
+console.log('✓ Exploração e incursões pagam uma única vez por ID.\n');
+
+// TESTE 13: Compatibilidade com o Schema Antigo
+// ----------------------------------------------------
+console.log('TESTE 13: Verificando retrocompatibilidade de tipos e campanha...');
 assert.ok(basePlayer.hp === 100, 'hp clássico preservado');
 assert.ok(basePlayer.maxHp === 100, 'maxHp clássico preservado');
 assert.ok(basePlayer.atk === 20, 'atk clássico preservado');
 assert.ok(basePlayer.def === 10, 'def clássico preservado');
 console.log('✓ Retrocompatibilidade de PlayerState intacta.');
+
+console.log('\nTESTE EXTRA: Padrões exclusivos de chefes...');
+const intentEnemy = { name: 'Chefe', hp: 100, maxHp: 100, atk: 40, boss: true };
+assert.strictEqual(getUniqueBossIntent({ ...intentEnemy, avatarType: 'containment_core' }, 3, 1).type, 'HEAVY_TELEGRAPH');
+assert.strictEqual(getUniqueBossIntent({ ...intentEnemy, avatarType: 'commander_vertex' }, 3, 1).type, 'CHANNELING');
+assert.strictEqual(getUniqueBossIntent({ ...intentEnemy, avatarType: 'rift_admiral' }, 2, 1).type, 'HEAVY_TELEGRAPH');
+assert.strictEqual(getUniqueBossIntent({ ...intentEnemy, avatarType: 'collapse_herald' }, 2, 1).type, 'CHANNELING');
+assert.strictEqual(getUniqueBossIntent({ ...intentEnemy, avatarType: 'convergence_sovereign' }, 1, 3).type, 'HEAVY_TELEGRAPH');
+console.log('✓ Cinco padrões de chefe são determinísticos e distintos.');
+
+console.log('\nTESTE EXTRA: Defesa e penetração de armadura...');
+assert.ok(calculateDamageAgainstDefense(100, 40) < 100, 'Defesa do inimigo deve reduzir o dano recebido');
+assert.strictEqual(calculateDamageAgainstDefense(100, 40, 1), 100, 'Penetração total deve ignorar a defesa');
+assert.strictEqual(calculateDamageAgainstDefense(1, 500), 1, 'Dano mínimo deve permanecer em 1');
+console.log('✓ Defesa reduz dano, penetração é limitada e dano mínimo é preservado.');
+
+console.log('\nTESTE EXTRA: Escalonamento de custos de melhorias...');
+const upgradeCostLevelOne = calculateUpgradeCost(100, 2, 0);
+const upgradeCostLevelTwo = calculateUpgradeCost(100, 2, 1);
+const upgradeCostLevelThree = calculateUpgradeCost(100, 2, 2);
+assert.ok(upgradeCostLevelTwo.credits > upgradeCostLevelOne.credits);
+assert.ok(upgradeCostLevelThree.credits > upgradeCostLevelTwo.credits);
+assert.ok(upgradeCostLevelThree.matrixCells > upgradeCostLevelTwo.matrixCells);
+console.log('✓ Créditos e células aumentam a cada nível de melhoria.');
+assert.ok(!isRiftRaidUnlocked({ ...testRaid, requiredPhase: 'fase-50' }, ['fase-10']), 'Raid final deve permanecer bloqueada antes do marco');
+assert.ok(isRiftRaidUnlocked({ ...testRaid, requiredPhase: 'fase-50' }, ['fase-50']), 'Raid final deve desbloquear ao concluir o marco');
+
+console.log('\nTESTE EXTRA: Regras de atividades da campanha...');
+assert.ok(isFrequencyDecoded(620, 640));
+assert.ok(!isFrequencyDecoded(620, 680));
+const bracedRelay = resolveRelayDefense(100, 10, 40, 1, 'BRACE');
+const disruptedRelay = resolveRelayDefense(100, 10, 40, 1, 'DISRUPT');
+assert.ok(disruptedRelay.integrity > bracedRelay.integrity, 'Interromper ataque telegrafado deve preservar mais integridade que bloquear');
+assert.ok(resolveRelayDefense(50, 0, 40, 2, 'REPAIR').integrity > 0);
+assert.deepStrictEqual(advanceExtraction(['A', 'C'], 0, 'A', 0), { nextIndex: 1, errors: 0, correct: true, failed: false });
+assert.ok(advanceExtraction(['A', 'C'], 0, 'D', 1).failed, 'Erros de extração devem poder reprovar a missão');
+console.log('✓ Decodificação, defesa tática e extração têm condições testáveis.');
 
 console.log('\n========================================');
 console.log('TODOS OS TESTES DO MÓDULO A FORAM APROVADOS!');

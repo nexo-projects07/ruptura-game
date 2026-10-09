@@ -142,7 +142,7 @@ export const NexusHubScene: React.FC<NexusHubSceneProps> = ({
               <div className="flex items-center gap-2 text-[10px] sm:text-xs font-mono">
                 <span className="text-cyan-300 font-bold uppercase tracking-wider">ESTAÇÃO DE COMANDO</span>
                 <span aria-hidden="true" className="text-slate-600">·</span>
-                <span className="text-fuchsia-400 font-bold">RUPTURA 5.0 ULTIMATE</span>
+                <span className="text-fuchsia-400 font-bold">RUPTURA</span>
               </div>
               <h1 className="text-xl sm:text-2xl md:text-4xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-indigo-200 to-fuchsia-400 mt-0.5 sm:mt-1">
                 HUB CENTRAL NEXUS
@@ -341,7 +341,7 @@ export const NexusHubScene: React.FC<NexusHubSceneProps> = ({
             </div>
           </button>
 
-          {/* Module: Fendas Sincronizadas / Co-op Multiplayer (RUPTURA 5.0) */}
+          {/* Module: Local Rift Raids */}
           <button
             onClick={() => {
               audio.playPortal();
@@ -356,14 +356,14 @@ export const NexusHubScene: React.FC<NexusHubSceneProps> = ({
                   <Users className="w-5 h-5" />
                 </span>
                 <span className="text-[10px] text-cyan-300 font-bold flex items-center gap-1 uppercase tracking-wider">
-                  <Wifi className="w-3 h-3 text-emerald-400 animate-pulse" /> MULTIPLAYER 5.0
+                  INCURSÕES LOCAIS
                 </span>
               </div>
               <h2 className="text-base font-bold text-white group-hover:text-cyan-300 transition">
-                FENDAS SINCRONIZADAS (CO-OP)
+                INCURSÕES DA FENDA
               </h2>
               <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                Incursões em esquadrão com operadores (Kael, Lyra, Marcus, Kira), link de sala e Combo de Ressonância.
+                Combates com Kael e companheiros controlados pelo jogo. Salas online ainda não estão configuradas.
               </p>
             </div>
             <div className="flex items-center justify-between text-xs text-cyan-300 font-bold pt-3 border-t border-slate-800">

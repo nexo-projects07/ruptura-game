@@ -7,6 +7,7 @@ import {
 } from '../types/game';
 import { ItemRegistry } from './ItemRegistry';
 import { SkillTreeSystem } from './SkillTreeSystem';
+import { getExplorerProfile } from './ExplorerSystem';
 
 /**
  * Bounds and caps for player derived stats to prevent runaway scaling or infinite stats.
@@ -124,17 +125,18 @@ export class StatCalculator {
     const gearState = overrideGear ?? player.equippedGear;
     const equippedItems = this.getEquippedItems(gearState);
     const gearMods = this.aggregateModifiers(equippedItems);
-    const talentMods = SkillTreeSystem.getAggregatedTalentStats(player.allocatedTalents);
+    const talentMods = SkillTreeSystem.getAggregatedTalentStats(player.allocatedTalents, player.activeExplorerId ?? 'kael');
+    const explorerMods = getExplorerProfile(player.activeExplorerId).statModifiers;
 
     // 3. Compute combined stats
-    const rawMaxHp = baseHp + gearMods.hp + talentMods.hp;
-    const rawAtk = baseAtk + gearMods.atk + talentMods.atk;
-    const rawDef = baseDef + gearMods.def + talentMods.def;
-    const rawFocus = baseFocus + gearMods.focus + talentMods.focus;
-    const rawFocusRecovery = gearMods.focusRecovery + talentMods.focusRecovery;
-    const rawCritChance = gearMods.critChance + talentMods.critChance;
-    const rawDodgeBonus = gearMods.dodgeBonus + talentMods.dodgeBonus;
-    const rawDamageReduction = gearMods.damageReduction + talentMods.damageReduction;
+    const rawMaxHp = baseHp + gearMods.hp + talentMods.hp + sanitizeNumber(explorerMods.hp, 0, -1000, 1000);
+    const rawAtk = baseAtk + gearMods.atk + talentMods.atk + sanitizeNumber(explorerMods.atk, 0, -500, 500);
+    const rawDef = baseDef + gearMods.def + talentMods.def + sanitizeNumber(explorerMods.def, 0, -500, 500);
+    const rawFocus = baseFocus + gearMods.focus + talentMods.focus + sanitizeNumber(explorerMods.focus, 0, -100, 100);
+    const rawFocusRecovery = gearMods.focusRecovery + talentMods.focusRecovery + sanitizeNumber(explorerMods.focusRecovery, 0, -50, 50);
+    const rawCritChance = gearMods.critChance + talentMods.critChance + sanitizeNumber(explorerMods.critChance, 0, -1, 1);
+    const rawDodgeBonus = gearMods.dodgeBonus + talentMods.dodgeBonus + sanitizeNumber(explorerMods.dodgeBonus, 0, -1, 1);
+    const rawDamageReduction = gearMods.damageReduction + talentMods.damageReduction + sanitizeNumber(explorerMods.damageReduction, 0, -1, 1);
 
     // 4. Apply soft caps and final clamping
     return {

@@ -20,6 +20,7 @@ import { audio } from '../systems/AudioEngine';
 interface MultiverseMapSceneProps {
   player: PlayerState;
   completedPhases: string[];
+  unlockedPhases: string[];
   unlockedRealms: string[];
   onSelectRealm: (realm: RealmData) => void;
   onGoToCampaignPhase: (phaseId: string) => void;
@@ -65,7 +66,7 @@ export const MULTIVERSE_REALMS: RealmData[] = [
     id: 'realm-epsilon',
     name: 'Realidade Épsilon: Nexus Primordial',
     code: 'REALM-EPSILON',
-    description: 'Dimensão pós-singularidade descoberta em RUPTURA 2.0. Rica em Células de Matriz e Núcleos de Éter, protegida por Guardiões Cósmicos.',
+    description: 'Dimensão pós-singularidade descoberta após a primeira Convergência. Rica em Células de Matriz e Núcleos de Éter, protegida por Guardiões Cósmicos.',
     threatLevel: 'EXTREMA',
     isUnlocked: false,
     icon: 'crystal',
@@ -88,6 +89,7 @@ export const MULTIVERSE_REALMS: RealmData[] = [
 export const MultiverseMapScene: React.FC<MultiverseMapSceneProps> = ({
   player,
   completedPhases,
+  unlockedPhases,
   unlockedRealms,
   onGoToCampaignPhase,
   onGoToSpecialRealmCombat,
@@ -242,17 +244,21 @@ export const MultiverseMapScene: React.FC<MultiverseMapSceneProps> = ({
                   <div className="flex flex-wrap gap-2">
                     {selectedRealm.phases.map(pId => {
                       const isDone = completedPhases.includes(pId);
+                      const isUnlocked = unlockedPhases.includes(pId);
                       return (
                         <button
                           key={pId}
+                          disabled={!isUnlocked}
                           onClick={() => onGoToCampaignPhase(pId)}
                           className={`text-xs px-2.5 py-1 rounded-lg border transition font-mono flex items-center gap-1.5 ${
                             isDone
                               ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-300 hover:bg-emerald-900/60'
-                              : 'bg-slate-950 border-cyan-500/30 text-cyan-300 hover:border-cyan-300'
+                              : isUnlocked
+                              ? 'bg-slate-950 border-cyan-500/30 text-cyan-300 hover:border-cyan-300'
+                              : 'bg-slate-900 border-slate-800 text-slate-600 cursor-not-allowed opacity-60'
                           }`}
                         >
-                          <Play className="w-3 h-3" />
+                          {isUnlocked ? <Play className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
                           <span>{pId.toUpperCase()}</span>
                           {isDone && <span className="text-[9px] text-emerald-400 font-bold">✓</span>}
                         </button>

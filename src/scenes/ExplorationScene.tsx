@@ -25,6 +25,7 @@ import { AtmosphericCanvas } from '../components/AtmosphericCanvas';
 import { ProgressionHUD } from '../components/ProgressionHUD';
 import { PlayerState } from '../types/game';
 import { audio } from '../systems/AudioEngine';
+import { grantExplorationPointReward } from '../systems/ProgressionRewardsSystem';
 
 interface SecretPoint {
   id: string;
@@ -184,7 +185,7 @@ export const ExplorationScene: React.FC<{
   };
 
   const handleTune = () => {
-    if (!selectedPoint) return;
+    if (!selectedPoint || player.discoveredSecrets?.includes(selectedPoint.id)) return;
     const diff = Math.abs(tuningFreq - selectedPoint.targetFreq);
 
     if (diff <= 25) {
@@ -193,13 +194,7 @@ export const ExplorationScene: React.FC<{
       setTuningMsg('✅ FREQUÊNCIA SINCRONIZADA! ANOMALIA DECIFRADA COM SUCESSO!');
 
       // Grant rewards
-      setPlayer(p => ({
-        ...p,
-        credits: p.credits + selectedPoint.reward.credits,
-        fragments: p.fragments + selectedPoint.reward.fragments,
-        matrixCells: (p.matrixCells ?? 0) + selectedPoint.reward.matrixCells,
-        discoveredSecrets: [...(p.discoveredSecrets ?? []), selectedPoint.id],
-      }));
+      setPlayer(p => grantExplorationPointReward(p, selectedPoint.id, selectedPoint.reward));
 
       setPoints(prev =>
         prev.map(p => (p.id === selectedPoint.id ? { ...p, solved: true } : p))
@@ -237,7 +232,7 @@ export const ExplorationScene: React.FC<{
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded font-bold border border-emerald-500/40">
-                  RECONHECIMENTO LIVRE RUPTURA 5.0
+                  RECONHECIMENTO LIVRE
                 </span>
                 <span className="text-[10px] text-slate-400">
                   {points.filter(p => p.solved).length} / {points.length} Decifrados

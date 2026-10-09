@@ -24,8 +24,6 @@ export interface SkinDefinition {
     armorDark: string;
     visor: string;
   };
-  bonusTag?: string;
-  statPerkDescription: string;
 }
 
 export const KAEL_SKINS: SkinDefinition[] = [
@@ -45,7 +43,6 @@ export const KAEL_SKINS: SkinDefinition[] = [
       armorDark: '#0f172a',
       visor: '#06b6d4',
     },
-    statPerkDescription: 'Equilíbrio padrão de combate dimensional.',
   },
   {
     id: 'skin-explorer',
@@ -63,8 +60,6 @@ export const KAEL_SKINS: SkinDefinition[] = [
       armorDark: '#064e3b',
       visor: '#6ee7b7',
     },
-    bonusTag: '+5% ESQUIVA',
-    statPerkDescription: 'Sensores de terreno reduzem danos ambientais.',
   },
   {
     id: 'skin-tactical',
@@ -82,8 +77,6 @@ export const KAEL_SKINS: SkinDefinition[] = [
       armorDark: '#1e1b4b',
       visor: '#93c5fd',
     },
-    bonusTag: '+8 DEFESA',
-    statPerkDescription: 'Blindagem de alta densidade contra projéteis cinéticos.',
   },
   {
     id: 'skin-elite',
@@ -101,8 +94,6 @@ export const KAEL_SKINS: SkinDefinition[] = [
       armorDark: '#451a03',
       visor: '#fef08a',
     },
-    bonusTag: '+12% CRÍTICO',
-    statPerkDescription: 'Condutores hiper-carregados estabilizam a precisão.',
   },
   {
     id: 'skin-corrupted',
@@ -120,8 +111,6 @@ export const KAEL_SKINS: SkinDefinition[] = [
       armorDark: '#2e020d',
       visor: '#fda4af',
     },
-    bonusTag: '+15% ATAQUE',
-    statPerkDescription: 'Gera picos de força destrutiva à custa de estabilidade.',
   },
   {
     id: 'skin-tachyon',
@@ -139,8 +128,6 @@ export const KAEL_SKINS: SkinDefinition[] = [
       armorDark: '#2e1065',
       visor: '#e9d5ff',
     },
-    bonusTag: '+25 FOCO INICIAL',
-    statPerkDescription: 'Acelera a recarga de habilidades de dobra espacial.',
   },
   {
     id: 'skin-ascendant',
@@ -158,8 +145,6 @@ export const KAEL_SKINS: SkinDefinition[] = [
       armorDark: '#0f172a',
       visor: '#ffffff',
     },
-    bonusTag: '+50 HP MÁXIMO',
-    statPerkDescription: 'Presença multiversal que estabiliza o tecido celular.',
   },
   {
     id: 'skin-legendary',
@@ -177,8 +162,6 @@ export const KAEL_SKINS: SkinDefinition[] = [
       armorDark: '#1e102d',
       visor: '#ffffff',
     },
-    bonusTag: 'ATRIBUTOS HEROICOS',
-    statPerkDescription: 'Amplifica ataque, defesa e regeneração de foco.',
   },
 ];
 
