@@ -1,0 +1,6 @@
+{
+  "name": "RUPTURA 2.0 — RPG Sci-Fi Dimensional",
+  "description": "RPG sci-fi dimensional de exploração, combate tático em tempo real, multiverso e chefes multifásicos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
